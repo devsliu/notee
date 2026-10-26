@@ -16,6 +16,7 @@ import 'package:notee/filesync/user.dart';
 import 'package:notee/filesync/http_api.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 /// Per-user resource bundle: owns the DB, FileStore, SearchIndex, SyncEngine
@@ -85,7 +86,8 @@ class _UserResource {
       final dir = user.dirAbsPath;
       AppLogger.i('Repository', "_UserResource.open dir=$dir");
 
-      fileStore = FileStore(dir);
+      final cacheDir = (await getApplicationCacheDirectory()).path;
+      fileStore = FileStore(dir, cacheDir);
       db = createRecordsDatabase(File(join(dir, 'records0.db')));
       fileStore!.db = db!;
 
@@ -592,8 +594,7 @@ class Repository {
       fileStore.deleteWorkFile(uuid);
       try {
         final basePath = fileStore.getBaseFile(uuid);
-        final baseContent = File(basePath).readAsStringSync();
-        final remoteAssets = FileStore.extractAssetNames(baseContent).toSet();
+        final remoteAssets = RecordSections.extractAssetNamesFromPath(basePath).toSet();
         fileStore.pruneAssetsKeepOnly(uuid, remoteAssets);
       } catch (e) {
         AppLogger.e('Repository', "resolveConflict keepRemote uuid=$uuid asset prune failed: $e");

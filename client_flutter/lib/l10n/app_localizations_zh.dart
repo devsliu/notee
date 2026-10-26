@@ -409,6 +409,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importFailed => '笔记导入失败';
 
   @override
+  String get importFolder => '导入文件夹';
+
+  @override
+  String get importNoFiles => '未找到 .md 或 .txt 文件';
+
+  @override
+  String importCompleted(Object imported, Object skipped) {
+    return '导入完成：成功 $imported 个，跳过 $skipped 个';
+  }
+
+  @override
   String get collapseAll => '收起所有文件夹';
 
   @override

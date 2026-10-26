@@ -412,6 +412,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get importFailed => 'Import Note Failed';
 
   @override
+  String get importFolder => 'Import Folder';
+
+  @override
+  String get importNoFiles => 'No .md or .txt files found';
+
+  @override
+  String importCompleted(Object imported, Object skipped) {
+    return 'Import done: $imported imported, $skipped skipped';
+  }
+
+  @override
   String get collapseAll => 'Collapse All Folders';
 
   @override

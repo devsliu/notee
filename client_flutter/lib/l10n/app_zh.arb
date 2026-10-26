@@ -125,6 +125,15 @@
   "importDocument": "导入文档",
   "importSuccess": "笔记导入成功",
   "importFailed": "笔记导入失败",
+  "importFolder": "导入文件夹",
+  "importNoFiles": "未找到 .md 或 .txt 文件",
+  "importCompleted": "导入完成：成功 {imported} 个，跳过 {skipped} 个",
+  "@importCompleted": {
+    "placeholders": {
+      "imported": {},
+      "skipped": {}
+    }
+  },
   "collapseAll": "收起所有文件夹",
   "undo": "撤销",
   "redo": "重做",

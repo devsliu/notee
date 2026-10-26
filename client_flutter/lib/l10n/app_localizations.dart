@@ -848,6 +848,24 @@ abstract class AppLocalizations {
   /// **'笔记导入失败'**
   String get importFailed;
 
+  /// No description provided for @importFolder.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入文件夹'**
+  String get importFolder;
+
+  /// No description provided for @importNoFiles.
+  ///
+  /// In zh, this message translates to:
+  /// **'未找到 .md 或 .txt 文件'**
+  String get importNoFiles;
+
+  /// No description provided for @importCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入完成：成功 {imported} 个，跳过 {skipped} 个'**
+  String importCompleted(Object imported, Object skipped);
+
   /// No description provided for @collapseAll.
   ///
   /// In zh, this message translates to:

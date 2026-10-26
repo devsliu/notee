@@ -40,12 +40,36 @@ func (s *Server) getAssetAbsPath(userId int64, recordUuid, filename string) stri
 	return filepath.Join(s.getAssetAbsDir(userId, recordUuid), filename)
 }
 
+// purgeRecordFiles physically removes the record file and asset directory
+// for each UUID in uuids.  Called after DB has permanently deleted the rows
+// (tombstone purge); do NOT call this for soft-deleted (tombstoned) records.
+func (s *Server) purgeRecordFiles(userId int64, uuids []string) {
+	for _, uuid := range uuids {
+		os.Remove(s.getRecordAbsPath(userId, uuid))
+		os.RemoveAll(s.getAssetAbsDir(userId, uuid))
+	}
+}
+
+// maybePurgeTombstones triggers a tombstone purge when the version that was
+// just assigned crosses the purgeMilestone boundary.  Handles DB purge,
+// memory PurgedVersion update, and file cleanup in one place.
+func (s *Server) maybePurgeTombstones(user *CacheUser, version int64) {
+	if !versionHitPurgeMilestone(version) {
+		return
+	}
+	purgedUUIDs, pv, _ := s.db.purgeExpiredTombstones(user.UserID, version)
+	if pv > 0 {
+		user.PurgedVersion.Store(pv)
+	}
+	s.purgeRecordFiles(user.UserID, purgedUUIDs)
+}
+
 // parseAssetHeader reads a record content file and returns the JSON array of
 // asset filenames declared in its [[image]] section. File format:
 //
 //	[[image:27,content:15234]]<27 bytes image JSON><15234 bytes content body>
 //
-// All tag headers live in the file-level "]]" header at the top of the file,
+// All section-kind headers live in the file-level "]]" header at the top of the file,
 // with each length being the UTF-8 byte count of the following section. The
 // header always fits within the first 4KB of the file, so we only peek 4KB
 // once to resolve every section's absolute byte offset; if a section's bytes
@@ -83,7 +107,7 @@ func parseAssetHeader(filePath string) []string {
 	}
 	headerEnd := closeIdx + 1 // position right after the second ']'
 
-	sections := parseHeaderString(string(buf[2:closeIdx]))
+	sections := parseHeaderString(string(buf[2 : closeIdx-1]))
 	if len(sections) == 0 {
 		return parseAssetHeaderLegacy(buf[:n])
 	}
@@ -93,7 +117,7 @@ func parseAssetHeader(filePath string) []string {
 	var imageStart, imageLen int
 	found := false
 	for _, sec := range sections {
-		if sec.tag == imageTagStr {
+		if sec.kind == imageSectionStr {
 			imageStart, imageLen = cur, sec.length
 			found = true
 			break
@@ -126,13 +150,13 @@ func parseAssetHeader(filePath string) []string {
 	return names
 }
 
-// headerSection is a parsed "tag:len" entry from the file-level header.
+// headerSection is a parsed "kind:len" entry from the file-level header.
 type headerSection struct {
-	tag    string
+	kind   string
 	length int
 }
 
-// parseHeaderString parses the "tag:len,tag:len,..." content between "[[" and "]]".
+// parseHeaderString parses the "kind:len,kind:len,..." content between "[[" and "]]".
 func parseHeaderString(header string) []headerSection {
 	parts := strings.Split(header, ",")
 	sections := make([]headerSection, 0, len(parts))
@@ -145,12 +169,12 @@ func parseHeaderString(header string) []headerSection {
 		if colon <= 0 || colon == len(part)-1 {
 			continue
 		}
-		tag := strings.TrimSpace(part[:colon])
+		kind := strings.TrimSpace(part[:colon])
 		length, err := strconv.Atoi(strings.TrimSpace(part[colon+1:]))
-		if tag == "" || err != nil || length < 0 {
+		if kind == "" || err != nil || length < 0 {
 			continue
 		}
-		sections = append(sections, headerSection{tag: tag, length: length})
+		sections = append(sections, headerSection{kind: kind, length: length})
 	}
 	return sections
 }
@@ -173,7 +197,7 @@ func parseAssetHeaderLegacy(buf []byte) []string {
 	return names
 }
 
-const imageTagStr = "image"
+const imageSectionStr = "image"
 
 // cleanupOrphanAssets removes asset files that are no longer referenced by the
 // record's current content header. It reads the committed record file to get
@@ -356,6 +380,10 @@ func (s *Server) updateRecordHandler(w http.ResponseWriter, r *http.Request, use
 		// directory that is no longer referenced by the new content header.
 		s.cleanupOrphanAssets(user.UserID, upsert.UUID)
 	}
+
+	// 5. Purge expired tombstones after the DB + file commits.
+	s.maybePurgeTombstones(user, record.Version)
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(record)
 }
@@ -372,21 +400,23 @@ func (s *Server) deleteRecordsHandler(w http.ResponseWriter, r *http.Request, us
 		http.Error(w, "invalid request body", ResultErrorParams.Value)
 		return
 	}
-	results, maxPurgedVersion := s.db.DeleteRecords(user.UserID, items)
+	results := s.db.DeleteRecords(user.UserID, items)
 
-	// Remove physical files and shares for successfully deleted records
+	// Soft-delete (tombstone) path: do NOT touch record files or asset dirs.
+	// Physical cleanup happens ONLY on DB purge — which now requires BOTH
+	// the version milestone AND tombstoneKeepMillis expiry — so recoverable
+	// records (within 30 days) always have their files available.
+	// Share links can be cleared; the client will recreate them on restore.
+	var milestoneVersion int64
 	for _, res := range results {
 		if res.Code == ResultSuccess.Value && res.Data != nil {
-			os.Remove(s.getRecordAbsPath(user.UserID, res.Data.UUID))
-			os.RemoveAll(s.getAssetAbsDir(user.UserID, res.Data.UUID))
 			s.deleteSharesByRecord(user.UserID, res.Data.UUID)
+			if milestoneVersion == 0 && versionHitPurgeMilestone(res.Data.Version) {
+				milestoneVersion = res.Data.Version
+			}
 		}
 	}
-
-	// Only update the cache when a milestone is triggered (same rationale as single delete)
-	if maxPurgedVersion > 0 {
-		user.PurgedVersion.Store(maxPurgedVersion)
-	}
+	s.maybePurgeTombstones(user, milestoneVersion)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -405,6 +435,16 @@ func (s *Server) updateRecordsHandler(w http.ResponseWriter, r *http.Request, us
 		return
 	}
 	results := s.db.UpsertRecords(user.UserID, items)
+
+	// Find the first milestone-hitting version in this batch.  maybePurgeTombstones
+	// returns early when milestoneVersion == 0 (no milestone crossed in this batch).
+	var milestoneVersion int64
+	for _, res := range results {
+		if res.Code == ResultSuccess.Value && res.Data != nil && milestoneVersion == 0 && versionHitPurgeMilestone(res.Data.Version) {
+			milestoneVersion = res.Data.Version
+		}
+	}
+	s.maybePurgeTombstones(user, milestoneVersion)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

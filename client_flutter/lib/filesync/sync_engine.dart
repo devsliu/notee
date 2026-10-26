@@ -449,13 +449,7 @@ class SyncEngine {
   Future<void> _uploadRecordAssets(String uuid, String workFilePath) async {
     final file = File(workFilePath);
     if (!file.existsSync()) return;
-    String content;
-    try {
-      content = file.readAsStringSync();
-    } catch (_) {
-      return;
-    }
-    final names = FileStore.extractAssetNames(content);
+    final names = RecordSections.extractAssetNamesFromPath(workFilePath);
     if (names.isEmpty) return;
     for (final name in names) {
       if (_closed) break;

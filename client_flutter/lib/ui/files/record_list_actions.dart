@@ -1,29 +1,19 @@
-﻿import 'dart:math';
-import 'dart:typed_data';
+import 'dart:math';
 
-import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
-import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/config/app_env.dart';
-
+import 'package:notee/config/language_manager.dart';
+import 'package:notee/config/theme.dart';
+import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/model/record_opened_state.dart';
 import 'package:notee/model/record_utils.dart';
 import 'package:notee/ui/common/input_dialog.dart';
 import 'package:notee/ui/base_app.dart';
-import 'package:notee/ui/files/record_export_dialog.dart';
+import 'package:notee/ui/files/record_io.dart';
 import 'package:notee/ui/settings/theme_selector_dialog.dart';
-import 'package:notee/config/language_manager.dart';
-import 'package:notee/config/theme.dart';
 
 import '../../utils/utils.dart';
-
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:file_picker/file_picker.dart';
-import 'package:charset_converter/charset_converter.dart';
-import 'package:notee/ui/editor/flow_editor/custom_code_block_parser.dart';
 
 
 /// Static action helpers shared by the record list page.
@@ -149,7 +139,9 @@ class RecordListActions {
       tooltip: l10n.importExport,
       onSelected: (value) {
         if (value == 'import') {
-          clickOnImportDocuments(context, getFolder());
+          RecordImport.pickAndImportDocuments(context, getFolder());
+        } else if (value == 'importFolder') {
+          RecordImport.pickAndImportFolder(context, getFolder());
         } else if (value == 'export') {
           RecordExport.start(context, getFolder());
         }
@@ -168,6 +160,14 @@ class RecordListActions {
           child: ListTile(
             leading: const Icon(Icons.upload_outlined),
             title: Text(l10n.importDocument),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem(
+          value: 'importFolder',
+          child: ListTile(
+            leading: const Icon(Icons.folder_open_outlined),
+            title: Text(l10n.importFolder),
             contentPadding: EdgeInsets.zero,
           ),
         ),
@@ -197,75 +197,6 @@ class RecordListActions {
     if (folder == null) return;
 
     Repository.get().recordTree.createFolder(path + folder);
-  }
-
-  static Future<String> decodeBytesWithFallback(Uint8List bytes) async {
-    try {
-      return utf8.decode(bytes);
-    } catch (e) {
-      try {
-        return await CharsetConverter.decode("GBK", bytes);
-      } catch (e) {
-        return latin1.decode(bytes);
-      }
-    }
-  }
-
-  static Future<void> saveImportDocument(String path, Document document) async {
-    String name = RecordUtils.getDocumentTitle(document);
-    if (name.isEmpty) {
-      name = RecordUtils.generateRecordName();
-    }
-    final String jsonString = jsonEncode(document.toJson());
-    var record = await Repository.get().createRecord(path, name, false, DateTime.now().millisecondsSinceEpoch);
-    if (record == null) return;
-    try {
-      await Repository.get().fileStore?.createWorkFile(record.uuid, jsonString);
-    } catch (e) {
-      await Repository.get().purgeUnsyncedRecord(record.uuid);
-      rethrow;
-    }
-  }
-
-  static void clickOnImportDocuments(BuildContext context, String path) async {
-    if (!context.mounted) return;
-    int importCount = 0;
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowMultiple: true,
-        allowedExtensions: ['md', 'txt'],
-      );
-
-      if (result != null) {
-        for (PlatformFile file in result.files) {
-          var bytes = file.bytes;
-          if (bytes == null && file.path != null) {
-            bytes = await File(file.path!).readAsBytes();
-          }
-          if (bytes == null) continue;
-          String content = await decodeBytesWithFallback(bytes);
-          if (content.isEmpty) continue;
-          final ext = file.extension?.toLowerCase();
-          if (ext == 'md' || ext == 'txt') {
-            Document delta = markdownToDocument(content, markdownParsers: const [CustomMarkdownCodeBlockParser()]);
-            await saveImportDocument(path, delta);
-            importCount++;
-          }
-        }
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.importSuccess)));
-        }
-      } else {}
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${l10n.importFailed} $e")));
-      }
-    } finally {
-      if (importCount > 0) {
-        Repository.get().syncRecords(false);
-      }
-    }
   }
 
   static Widget newRecordButton(

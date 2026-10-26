@@ -36,11 +36,6 @@ func NewDB(dbPath string) (*DB, error) {
 	if err := db.initUserTable(); err != nil {
 		return nil, err
 	}
-	// Add the assets column to any pre-existing per-user record tables (new tables
-	// already include it via createRecordTableSql). Duplicate-column errors are ignored.
-	if err := db.migrateRecordTableAssets(); err != nil {
-		return nil, err
-	}
 	return db, nil
 }
 

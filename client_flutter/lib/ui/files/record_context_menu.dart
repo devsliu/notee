@@ -7,10 +7,9 @@ import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/ui/common/input_dialog.dart';
-import 'package:notee/ui/editor/base_record_edit_page.dart';
 import 'package:notee/ui/editor/share_record_dialog.dart';
 import 'package:notee/ui/files/record_list_actions.dart';
-import 'package:notee/ui/files/record_export_dialog.dart';
+import 'package:notee/ui/files/record_io.dart';
 import 'package:notee/ui/files/record_move_dialog.dart';
 import 'package:notee/ui/files/record_multi_select.dart';
 import 'package:notee/config/language_manager.dart';
@@ -47,6 +46,7 @@ Future<void> showRecordContextMenu(
     actions.add(PopupMenuItem<String>(value: 'delete', child: Text(l10n.deleteFolder)));
     actions.add(PopupMenuItem<String>(value: 'exportMarkdown', child: Text(l10n.exportMd)));
     actions.add(PopupMenuItem<String>(value: 'importDocument', child: Text(l10n.importDocument)));
+    actions.add(PopupMenuItem<String>(value: 'importFolder', child: Text(l10n.importFolder)));
   }
   
 
@@ -105,7 +105,9 @@ Future<void> showRecordContextMenu(
   } else if (result == 'newFolder' && isFolder) {
     RecordListActions.clickOnCreateFolderButton(context, file.path);
   } else if (result == 'importDocument' && isFolder) {
-    RecordListActions.clickOnImportDocuments(context, file.path);
+    RecordImport.pickAndImportDocuments(context, file.path);
+  } else if (result == 'importFolder' && isFolder) {
+    RecordImport.pickAndImportFolder(context, file.path);
   } else if (result == 'share' && isFile) {
     _shareRecord(context, file);
   } else if (result == 'exportMarkdown' && isFolder) {
@@ -191,7 +193,7 @@ Future<void> _lockRecord(BuildContext context, TreeContentFile record, String pa
   }
   String lockTips = lock ? l10n.lock : l10n.unlock;
   // Only the content body is encrypted; the [[image]] asset header stays plaintext.
-  final (assets, body) = BaseRecordEditPageState.splitNoteContent(content);
+  final (assets, body) = RecordSections.splitContent(content);
   final transformed = lock ? Utils.encryptContent(body, pass) : Utils.decryptContent(body, pass);
   if (transformed == null) {
     if (context.mounted) {
@@ -199,7 +201,7 @@ Future<void> _lockRecord(BuildContext context, TreeContentFile record, String pa
     }
     return;
   }
-  final newContent = BaseRecordEditPageState.buildNoteContent(assets, transformed);
+  final newContent = RecordSections.buildNoteContent(assets, transformed);
 
   // Save locked content to file
   try {
@@ -233,7 +235,7 @@ Future<void> _shareRecord(BuildContext context, TreeContentFile file) async {
   }
   if (!context.mounted) return;
   // Extract the content body; locked records store the body encrypted.
-  final (_, body) = BaseRecordEditPageState.splitNoteContent(content);
+  final (_, body) = RecordSections.splitContent(content);
   // Locked records are stored encrypted; prompt for the password to get plaintext
   String plaintext = body;
   if (file.locked == 1) {

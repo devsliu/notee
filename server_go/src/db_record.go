@@ -88,36 +88,6 @@ func dropRecordTableSql(userId int64) string {
 	return fmt.Sprintf("DROP TABLE IF EXISTS record_%d;", userId)
 }
 
-// migrateRecordTableAssets adds the `assets` column to every existing per-user
-// record table. Tables created by new users already include it via
-// createRecordTableSql, so ALTER TABLE on those will fail with "duplicate
-// column name" — that error is ignored. Any other error is returned.
-func (db *DB) migrateRecordTableAssets() error {
-	rows, err := db.conn.Query("SELECT id FROM user")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return err
-		}
-		ids = append(ids, id)
-	}
-	for _, id := range ids {
-		sqlStmt := fmt.Sprintf("ALTER TABLE record_%d ADD COLUMN assets TEXT NOT NULL DEFAULT ''", id)
-		if _, err := db.conn.Exec(sqlStmt); err != nil {
-			// "duplicate column name" means the table already has the column (new schema).
-			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // RecordUpsert carries the fields for an upsert operation.
 // Numeric fields use 0 as the "not provided" sentinel (skip update on conflict).
 // Locked and Reminder use pointers because 0 / "" are meaningful values for them.
@@ -324,28 +294,92 @@ type RecordResult struct {
 	Data *Record `json:"data,omitempty"`
 }
 
-// DeleteRecords batch deletes records with conflict detection.
-// For each item, if the record exists (not yet deleted) and its server version > item.Version
-// (with item.Version > 0), it returns ResultErrorRecordConflict with the current record.
-// Returns per-uuid results and the maximum purgedVersion triggered (0 if none).
-func (db *DB) DeleteRecords(userId int64, items []DeleteRecordsItem) ([]RecordResult, int64) {
-	results := make([]RecordResult, 0, len(items))
-	var maxPurgedVersion int64 = 0
-	for _, item := range items {
-		result, purgedVersion := db.deleteRecordWithConflict(userId, item)
-		results = append(results, result)
-		if purgedVersion > maxPurgedVersion {
-			maxPurgedVersion = purgedVersion
-		}
-	}
-	return results, maxPurgedVersion
+// tombstoneKeepMillis is how long a soft-deleted record stays recoverable
+// on the server.  After this window it becomes eligible for physical
+// deletion on the next purge milestone (1000-version increment).
+const tombstoneKeepMillis int64 = 30 * 24 * 60 * 60 * 1000 // 30 days
+const purgeMilestone int64 = 1000
+
+func versionHitPurgeMilestone(v int64) bool {
+	return v > 0 && v%purgeMilestone == 0
 }
 
-func (db *DB) deleteRecordWithConflict(userId int64, item DeleteRecordsItem) (RecordResult, int64) {
+// purgeExpiredTombstones scans the user's record table inside its own
+// transaction for tombstones older than tombstoneKeepMillis and physically
+// deletes them.  Invoked from handler layer AFTER the upsert/delete tx has
+// committed — all the caller needs to provide is the version that was just
+// consumed (so it can check the version%1000 milestone).
+//
+// Returns the UUIDs that were purged (for post-commit file cleanup) and the
+// max purged version (to update user.purgedVersion for the sync protocol).
+// If no milestone is reached or no tombstone qualifies, it returns nil/0.
+func (db *DB) purgeExpiredTombstones(userId int64, version int64) ([]string, int64, error) {
+	if !versionHitPurgeMilestone(version) {
+		return nil, 0, nil
+	}
+	cutoff := time.Now().UnixMilli() - tombstoneKeepMillis
+	var purgedUUIDs []string
+	var maxPurged int64
+	err := db.ExecInTransaction(func(tx *sql.Tx) error {
+		query := fmt.Sprintf(
+			"SELECT uuid, version FROM record_%d WHERE deleteAt > 0 AND deleteAt <= ?",
+			userId,
+		)
+		rows, err := tx.Query(query, cutoff)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var u string
+			var v int64
+			if scanErr := rows.Scan(&u, &v); scanErr != nil {
+				rows.Close()
+				return scanErr
+			}
+			purgedUUIDs = append(purgedUUIDs, u)
+			if v > maxPurged {
+				maxPurged = v
+			}
+		}
+		rows.Close()
+
+		if maxPurged == 0 {
+			return nil
+		}
+		if _, err := tx.Exec("UPDATE user SET purgedVersion=? WHERE id=?", maxPurged, userId); err != nil {
+			return err
+		}
+		delSQL := fmt.Sprintf(
+			"DELETE FROM record_%d WHERE deleteAt > 0 AND deleteAt <= ?",
+			userId,
+		)
+		_, err = tx.Exec(delSQL, cutoff)
+		return err
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return purgedUUIDs, maxPurged, nil
+}
+
+// DeleteRecords batch-marks records as deleted (tombstone) and returns
+// per-record results.  The handler is responsible for purging expired
+// tombstones AFTER this call commits (see purgeExpiredTombstones).
+func (db *DB) DeleteRecords(userId int64, items []DeleteRecordsItem) []RecordResult {
+	results := make([]RecordResult, 0, len(items))
+	for _, item := range items {
+		results = append(results, db.deleteRecordWithConflict(userId, item))
+	}
+	return results
+}
+
+// deleteRecordWithConflict tombstones a single record.  Returns the per-item
+// result (which carries the current server record including the newly-assigned
+// version — the handler uses that to decide whether to trigger a purge).
+func (db *DB) deleteRecordWithConflict(userId int64, item DeleteRecordsItem) RecordResult {
 	now := time.Now().UnixMilli()
 	var outRecord *Record
 	var bizResult ResultCode = ResultSuccess
-	var purgedVersion int64 = 0
 	err := db.ExecInTransaction(func(tx *sql.Tx) error {
 		record := &Record{}
 		querySql := fmt.Sprintf("SELECT "+recordColumns+" FROM record_%d WHERE uuid=?", userId)
@@ -375,16 +409,6 @@ func (db *DB) deleteRecordWithConflict(userId int64, item DeleteRecordsItem) (Re
 			return err
 		}
 
-		if (version % 1000) == 0 {
-			purgedVersion = version
-			if _, err := tx.Exec("UPDATE user SET purgedVersion=? WHERE id=?", purgedVersion, userId); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(fmt.Sprintf("DELETE FROM record_%d WHERE deleteAt > 0 AND version <= ?", userId), purgedVersion); err != nil {
-				return err
-			}
-		}
-
 		sqlStmt := fmt.Sprintf("UPDATE record_%d SET deleteAt=?, version=? WHERE uuid=?", userId)
 		if _, err := tx.Exec(sqlStmt, now, version, item.UUID); err != nil {
 			return err
@@ -394,14 +418,14 @@ func (db *DB) deleteRecordWithConflict(userId int64, item DeleteRecordsItem) (Re
 		return nil
 	})
 	if err != nil {
-		return RecordResult{UUID: item.UUID, Code: ResultErrorDatabase.Value}, 0
+		return RecordResult{UUID: item.UUID, Code: ResultErrorDatabase.Value}
 	}
-	return RecordResult{UUID: item.UUID, Code: bizResult.Value, Data: outRecord}, purgedVersion
+	return RecordResult{UUID: item.UUID, Code: bizResult.Value, Data: outRecord}
 }
 
 // UpsertRecords batch upserts file-less records (metadata only, no file upload).
-// Each item goes through the same conflict detection as UpsertRecord.
-// Returns per-uuid results in the same order as the input.
+// Returns per-record results.  The handler is responsible for purging expired
+// tombstones AFTER this call commits (see purgeExpiredTombstones).
 func (db *DB) UpsertRecords(userId int64, items []RecordUpsert) []RecordResult {
 	results := make([]RecordResult, 0, len(items))
 	for i := range items {

@@ -287,31 +287,6 @@ class HttpApi {
     });
   }
 
-  /// Download a single asset file to [localPath]. Returns true on success.
-  static Future<bool> downloadAsset(String recordUuid, String filename, String localPath) async {
-    final result = await _apiWrapper<bool>("downloadAsset $recordUuid/$filename", (client, baseUrl) async {
-      final url = '$baseUrl/asset/$recordUuid/${Uri.encodeComponent(filename)}';
-      final req = http.Request('GET', Uri.parse(url));
-      await setTokenToRequest(req);
-      final response = await client.send(req).timeout(_receiveTimeout);
-      if (response.statusCode == 200) {
-        final file = File(localPath);
-        await Utils.atomicWriteFile(file, (tmp) async {
-          final sink = tmp.openWrite();
-          try {
-            await response.stream.pipe(sink).timeout(const Duration(seconds: 120));
-          } finally {
-            await sink.close();
-          }
-        });
-        return ApiResult.success(true);
-      }
-      await response.stream.drain();
-      return ApiResult(response.statusCode, "asset download failed: ${response.statusCode}", false);
-    });
-    return result.data ?? false;
-  }
-
   /// Upsert a record. Fields that are null in [item] are omitted from the request so
   /// the server leaves them unchanged (partial update). editAt/version are always sent.
   /// Metadata is sent as a JSON string in the multipart "data" field; an optional

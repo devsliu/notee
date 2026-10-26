@@ -125,6 +125,15 @@
   "importDocument": "Import Documents",
   "importSuccess": "Import Note Success",
   "importFailed": "Import Note Failed",
+  "importFolder": "Import Folder",
+  "importNoFiles": "No .md or .txt files found",
+  "importCompleted": "Import done: {imported} imported, {skipped} skipped",
+  "@importCompleted": {
+    "placeholders": {
+      "imported": {},
+      "skipped": {}
+    }
+  },
   "collapseAll": "Collapse All Folders",
   "undo": "Undo",
   "redo": "Redo",

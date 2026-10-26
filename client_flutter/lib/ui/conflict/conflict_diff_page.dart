@@ -131,7 +131,7 @@ class _DiffEditorPanelState extends State<DiffEditorPanel> {
     if (!mounted) return;
     _contentMd5.value = Utils.generateMd5(rawContent);
     // Strip the [[image]]/[[content]] tagged header so the editor sees the body.
-    final (assets, body) = BaseRecordEditPageState.splitNoteContent(rawContent);
+    final (assets, body) = RecordSections.splitContent(rawContent);
     _originalAssets = assets;
     if (widget.isLocked) {
       setState(() => pageState = PageState(PageState.modePass, body));
@@ -168,14 +168,13 @@ class _DiffEditorPanelState extends State<DiffEditorPanel> {
     if (!widget.editable || _editorState == null || !isContentChanged) return;
     isContentChanged = false;
     final jsonString = jsonEncode(_editorState!.document.toJson());
-    // Wrap the new body with the original asset list so attachments survive
-    // conflict resolution.
-    final content = BaseRecordEditPageState.buildNoteContent(_originalAssets, jsonString);
+    // Pass body + original asset list separately so saveWorkFile can build the header.
     await BaseRecordEditPageState.saveWorkFile(
       uuid: widget.uuid,
       path: widget.path,
       name: widget.name,
-      content: content,
+      body: jsonString,
+      assetNames: _originalAssets,
       locked: widget.isLocked ? 1 : 0,
       password: _password,
       md5Ref: _contentMd5,
@@ -228,7 +227,8 @@ class _DiffEditorPanelState extends State<DiffEditorPanel> {
     }
 
     final theme = Theme.of(context);
-    final blockBuilders = buildEditorBlockBuilders(theme);
+    final fileStore = Repository.get().fileStore!;
+    final blockBuilders = buildEditorBlockBuilders(theme, recordUuid: widget.uuid, fileStore: fileStore);
     if (!widget.editable) {
       blockBuilders[ParagraphBlockKeys.type] = ParagraphBlockComponentBuilder(
         configuration: BlockComponentConfiguration(padding: (_) => EdgeInsets.zero),
