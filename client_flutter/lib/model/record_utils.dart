@@ -69,7 +69,9 @@ class RecordUtils {
   static String? extractTextFromFile(String path) {
     try {
       final raw = File(path).readAsStringSync();
-      final trimmed = raw.trim();
+      // Strip the [[image]]/[[content]] tagged header to get the body.
+      final content = _stripTaggedHeader(raw);
+      final trimmed = content.trim();
       if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
         try {
           final map = jsonDecode(trimmed) as Map<String, dynamic>;
@@ -95,5 +97,44 @@ class RecordUtils {
       AppLogger.e('RecordUtils', "[RecordUtils] extractTextFromFile path=$path: $e");
       return null;
     }
+  }
+
+  /// Extract the content body from a note file content that has a file-level
+  /// header [[tag:len,...]]. Returns the original content unchanged if it is not
+  /// in tagged format. Lengths are UTF-8 byte counts.
+  static String _stripTaggedHeader(String content) {
+    final bytes = utf8.encode(content);
+    if (bytes.length < 2 || bytes[0] != 0x5B || bytes[1] != 0x5B) {
+      return content;
+    }
+    int closeIdx = -1;
+    const int limit = 4096;
+    final int n = bytes.length < limit ? bytes.length : limit;
+    for (int i = 1; i < n; i++) {
+      if (bytes[i - 1] == 0x5D && bytes[i] == 0x5D) {
+        closeIdx = i;
+        break;
+      }
+    }
+    if (closeIdx <= 1) return content;
+    final headerEnd = closeIdx + 1;
+    final headerStr = utf8.decode(bytes.sublist(2, closeIdx));
+    int cur = headerEnd;
+    for (final part in headerStr.split(',')) {
+      final colon = part.indexOf(':');
+      if (colon <= 0 || colon == part.length - 1) continue;
+      final tag = part.substring(0, colon).trim();
+      final lenStr = part.substring(colon + 1).trim();
+      final len = int.tryParse(lenStr);
+      if (tag.isEmpty || len == null || len < 0) continue;
+      if (tag == 'content') {
+        if (cur + len <= bytes.length) {
+          return utf8.decode(bytes.sublist(cur, cur + len), allowMalformed: true);
+        }
+        return content;
+      }
+      cur += len;
+    }
+    return content;
   }
 }

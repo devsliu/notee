@@ -25,8 +25,193 @@ func (s *Server) getRecordAbsPath(userId int64, recordUuid string) string {
 	return filepath.Join(s.getRecordAbsFolder(userId), recordUuid)
 }
 
+// getAssetAbsFolder returns the per-user asset storage root: recordsFolder/user_N/assets/
+func (s *Server) getAssetAbsFolder(userId int64) string {
+	return filepath.Join(s.recordsFolder, "user_"+strconv.FormatInt(userId, 10), "assets")
+}
+
+// getAssetAbsDir returns the per-record asset directory: recordsFolder/user_N/assets/{recordUuid}/
+func (s *Server) getAssetAbsDir(userId int64, recordUuid string) string {
+	return filepath.Join(s.getAssetAbsFolder(userId), recordUuid)
+}
+
+// getAssetAbsPath returns the path to a single asset file.
+func (s *Server) getAssetAbsPath(userId int64, recordUuid, filename string) string {
+	return filepath.Join(s.getAssetAbsDir(userId, recordUuid), filename)
+}
+
+// parseAssetHeader reads a record content file and returns the JSON array of
+// asset filenames declared in its [[image]] section. File format:
+//
+//	[[image:27,content:15234]]<27 bytes image JSON><15234 bytes content body>
+//
+// All tag headers live in the file-level "]]" header at the top of the file,
+// with each length being the UTF-8 byte count of the following section. The
+// header always fits within the first 4KB of the file, so we only peek 4KB
+// once to resolve every section's absolute byte offset; if a section's bytes
+// happen to extend past the 4KB window we Seek + ReadFull once at its offset.
+//
+// Falls back to the legacy first-line-JSON-array format when the file does not
+// start with "[[".
+func parseAssetHeader(filePath string) []string {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	const peekSize = 4096
+	buf := make([]byte, peekSize)
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil
+	}
+	if n < 2 || buf[0] != '[' || buf[1] != '[' {
+		return parseAssetHeaderLegacy(buf[:n])
+	}
+
+	// Locate the header's closing "]]" (always inside the first 4KB per design).
+	var closeIdx int = -1
+	for i := 1; i < n; i++ {
+		if buf[i-1] == ']' && buf[i] == ']' {
+			closeIdx = i
+			break
+		}
+	}
+	if closeIdx <= 1 {
+		return parseAssetHeaderLegacy(buf[:n])
+	}
+	headerEnd := closeIdx + 1 // position right after the second ']'
+
+	sections := parseHeaderString(string(buf[2:closeIdx]))
+	if len(sections) == 0 {
+		return parseAssetHeaderLegacy(buf[:n])
+	}
+
+	// Walk sections to find "image"'s absolute offset.
+	cur := headerEnd
+	var imageStart, imageLen int
+	found := false
+	for _, sec := range sections {
+		if sec.tag == imageTagStr {
+			imageStart, imageLen = cur, sec.length
+			found = true
+			break
+		}
+		cur += sec.length
+	}
+	if !found || imageLen == 0 {
+		return nil
+	}
+
+	var imageBytes []byte
+	if imageStart+imageLen <= n {
+		// Entire image section already inside the first 4KB peek — no extra I/O.
+		imageBytes = buf[imageStart : imageStart+imageLen]
+	} else {
+		// Image section straddles past 4KB — seek and read it in one shot.
+		if _, err := f.Seek(int64(imageStart), io.SeekStart); err != nil {
+			return nil
+		}
+		imageBytes = make([]byte, imageLen)
+		if _, err := io.ReadFull(f, imageBytes); err != nil {
+			return nil
+		}
+	}
+
+	var names []string
+	if err := json.Unmarshal(imageBytes, &names); err != nil {
+		return nil
+	}
+	return names
+}
+
+// headerSection is a parsed "tag:len" entry from the file-level header.
+type headerSection struct {
+	tag    string
+	length int
+}
+
+// parseHeaderString parses the "tag:len,tag:len,..." content between "[[" and "]]".
+func parseHeaderString(header string) []headerSection {
+	parts := strings.Split(header, ",")
+	sections := make([]headerSection, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		colon := strings.IndexByte(part, ':')
+		if colon <= 0 || colon == len(part)-1 {
+			continue
+		}
+		tag := strings.TrimSpace(part[:colon])
+		length, err := strconv.Atoi(strings.TrimSpace(part[colon+1:]))
+		if tag == "" || err != nil || length < 0 {
+			continue
+		}
+		sections = append(sections, headerSection{tag: tag, length: length})
+	}
+	return sections
+}
+
+// parseAssetHeaderLegacy handles the old format where the first line of the file
+// is a JSON array of asset filenames.
+func parseAssetHeaderLegacy(buf []byte) []string {
+	line := string(buf)
+	if idx := strings.IndexByte(line, '\n'); idx >= 0 {
+		line = line[:idx]
+	}
+	firstLine := strings.TrimLeft(line, " \t\r")
+	if !strings.HasPrefix(firstLine, "[") {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(firstLine), &names); err != nil {
+		return nil
+	}
+	return names
+}
+
+const imageTagStr = "image"
+
+// cleanupOrphanAssets removes asset files that are no longer referenced by the
+// record's current content header. It reads the committed record file to get
+// the expected asset list, then deletes any other file in the per-record asset
+// directory. Failures are ignored — orphaned files are harmless.
+func (s *Server) cleanupOrphanAssets(userId int64, recordUuid string) {
+	recordPath := s.getRecordAbsPath(userId, recordUuid)
+	expected := parseAssetHeader(recordPath)
+	if expected == nil {
+		expected = []string{}
+	}
+	expectedSet := make(map[string]bool, len(expected))
+	for _, name := range expected {
+		expectedSet[name] = true
+	}
+	dir := s.getAssetAbsDir(userId, recordUuid)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !expectedSet[name] {
+			os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
 func (s *Server) deleteRecordFilesByUser(userId int64) error {
-	return os.RemoveAll(s.getRecordAbsFolder(userId))
+	if err := os.RemoveAll(s.getRecordAbsFolder(userId)); err != nil {
+		return err
+	}
+	// Also remove all asset files for this user.
+	os.RemoveAll(s.getAssetAbsFolder(userId))
+	return nil
 }
 
 // writeRecordTempFile writes an upload to a temporary file and returns the temp path.
@@ -132,6 +317,16 @@ func (s *Server) updateRecordHandler(w http.ResponseWriter, r *http.Request, use
 			return
 		}
 		hasTempFile = true
+		// Parse the plaintext asset-filename header line from the uploaded file
+		// (never encrypted) and persist it as the record's assets field.
+		if names := parseAssetHeader(tmpPath); names != nil {
+			b, _ := json.Marshal(names)
+			assetsStr := string(b)
+			upsert.Assets = &assetsStr
+		} else {
+			empty := "[]"
+			upsert.Assets = &empty
+		}
 	}
 	// Server-computed md5 always overrides the client-provided one.
 	upsert.MD5 = md5sum
@@ -157,6 +352,9 @@ func (s *Server) updateRecordHandler(w http.ResponseWriter, r *http.Request, use
 			http.Error(w, rc.Message, rc.Value)
 			return
 		}
+		// 4. Clean up orphaned asset files: any file in the record's asset
+		// directory that is no longer referenced by the new content header.
+		s.cleanupOrphanAssets(user.UserID, upsert.UUID)
 	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(record)
@@ -180,6 +378,7 @@ func (s *Server) deleteRecordsHandler(w http.ResponseWriter, r *http.Request, us
 	for _, res := range results {
 		if res.Code == ResultSuccess.Value && res.Data != nil {
 			os.Remove(s.getRecordAbsPath(user.UserID, res.Data.UUID))
+			os.RemoveAll(s.getAssetAbsDir(user.UserID, res.Data.UUID))
 			s.deleteSharesByRecord(user.UserID, res.Data.UUID)
 		}
 	}

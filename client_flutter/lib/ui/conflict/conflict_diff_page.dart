@@ -105,6 +105,7 @@ class _DiffEditorPanelState extends State<DiffEditorPanel> {
   FocusNode? _focusNode; // Only for editable panels
   String? _password; // Set after successful unlock; used for encrypt-save
   final ObjectRef<String> _contentMd5 = ObjectRef("");
+  List<String> _originalAssets = []; // Preserve asset list from the loaded file
   bool isContentChanged = false;
   StreamSubscription<EditorTransactionValue>? _subscription;
 
@@ -129,10 +130,13 @@ class _DiffEditorPanelState extends State<DiffEditorPanel> {
     final rawContent = await _readContent();
     if (!mounted) return;
     _contentMd5.value = Utils.generateMd5(rawContent);
+    // Strip the [[image]]/[[content]] tagged header so the editor sees the body.
+    final (assets, body) = BaseRecordEditPageState.splitNoteContent(rawContent);
+    _originalAssets = assets;
     if (widget.isLocked) {
-      setState(() => pageState = PageState(PageState.modePass, rawContent));
+      setState(() => pageState = PageState(PageState.modePass, body));
     } else {
-      setState(() => pageState = PageState(PageState.modeNormal, rawContent));
+      setState(() => pageState = PageState(PageState.modeNormal, body));
     }
   }
 
@@ -164,11 +168,14 @@ class _DiffEditorPanelState extends State<DiffEditorPanel> {
     if (!widget.editable || _editorState == null || !isContentChanged) return;
     isContentChanged = false;
     final jsonString = jsonEncode(_editorState!.document.toJson());
+    // Wrap the new body with the original asset list so attachments survive
+    // conflict resolution.
+    final content = BaseRecordEditPageState.buildNoteContent(_originalAssets, jsonString);
     await BaseRecordEditPageState.saveWorkFile(
       uuid: widget.uuid,
       path: widget.path,
       name: widget.name,
-      content: jsonString,
+      content: content,
       locked: widget.isLocked ? 1 : 0,
       password: _password,
       md5Ref: _contentMd5,

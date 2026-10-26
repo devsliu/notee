@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/filesync/reminder_tree.dart';
 import 'package:notee/ui/calendar/reminder_task_editor.dart';
@@ -24,6 +26,8 @@ import 'package:notee/ui/editor/share_record_dialog.dart';
 import 'package:notee/ui/editor/record_modify_time_bar.dart';
 import 'package:notee/ui/editor/record_reminder_bar.dart';
 import 'package:notee/ui/editor/record_tags_bar.dart';
+import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 
 /// Shared text style configuration (edit page + diff page).
 TextStyleConfiguration buildEditorTextStyle(ThemeData theme) {
@@ -330,6 +334,7 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     if (editorScrollController == null) {
       editorState.dispose();
       editorState = EditorState(document: document);
+      _setupSelectionMenu();
       editorScrollController = EditorScrollController(editorState: editorState);
       listenContentChange();
 
@@ -443,7 +448,118 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     if (name.isEmpty) {
       name = RecordUtils.generateRecordName();
     }
-    return (jsonString, name);
+    // Collect asset filenames referenced by image nodes (relative
+    // assets/{recordUuid}/{filename} → strip prefix to {filename}).
+    final assetNames = <String>[];
+    final prefix = 'assets/${mRecord.uuid}/';
+    for (final node in editorState.document.root.children) {
+      _collectImageAssets(node, prefix, assetNames);
+    }
+    final content = BaseRecordEditPageState.buildNoteContent(assetNames, jsonString);
+    return (content, name);
+  }
+
+  /// Recursively walk the document tree collecting image asset filenames.
+  void _collectImageAssets(Node node, String prefix, List<String> out) {
+    if (node.type == ImageBlockKeys.type) {
+      final url = node.attributes[ImageBlockKeys.url] as String?;
+      if (url != null && url.startsWith(prefix)) {
+        out.add(url.substring(prefix.length));
+      }
+    }
+    for (final child in node.children) {
+      _collectImageAssets(child, prefix, out);
+    }
+  }
+
+  /// Replace the built-in image selection-menu item with one that copies the
+  /// picked/downloaded image into assets/{recordUuid}/ and inserts a relative
+  /// URL node instead of a raw path/URL.
+  void _setupSelectionMenu() {
+    editorState.selectionMenuItems = standardSelectionMenuItems.map((item) {
+      final isImage = (item.keywords).contains('image');
+      if (!isImage) return item;
+      return SelectionMenuItem(
+        getName: () => item.name,
+        icon: item.icon,
+        keywords: item.keywords,
+        handler: (es, menuService, context) async {
+          final container = Overlay.of(context, rootOverlay: true);
+          showImageMenu(container, es, menuService, onInsertImage: _handleInsertImage);
+        },
+      );
+    }).toList();
+  }
+
+  /// Image insertion callback: copy (or download) the source into the record's
+  /// asset folder with a UUID filename, then insert a relative-URL image node.
+  void _handleInsertImage(String src) {
+    unawaited(() async {
+      final fileStore = Repository.get().fileStore;
+      if (fileStore == null) return;
+
+      String? localPath;
+      String ext = p.extension(src);
+      final isNetwork = src.startsWith('http://') || src.startsWith('https://');
+
+      if (isNetwork) {
+        try {
+          final resp = await http.get(Uri.parse(src)).timeout(const Duration(seconds: 30));
+          if (resp.statusCode == 200) {
+            final dir = fileStore.ensureAssetDir(mRecord.uuid);
+            final tmp = File(p.join(dir, '.dl_${DateTime.now().microsecondsSinceEpoch}'));
+            await tmp.writeAsBytes(resp.bodyBytes);
+            localPath = tmp.path;
+            // If URL has no extension, try to infer from content-type; default .png
+            if (ext.isEmpty) {
+              final ct = resp.headers['content-type'] ?? '';
+              if (ct.contains('jpeg') || ct.contains('jpg')) {
+                ext = '.jpg';
+              } else if (ct.contains('png')) {
+                ext = '.png';
+              } else if (ct.contains('gif')) {
+                ext = '.gif';
+              } else if (ct.contains('webp')) {
+                ext = '.webp';
+              } else {
+                ext = '.png';
+              }
+            }
+          }
+        } catch (e) {
+          AppLogger.e('Editor', "[_handleInsertImage] download failed: $e");
+        }
+      } else {
+        localPath = src;
+        if (ext.isEmpty) ext = '.png';
+      }
+
+      if (localPath == null) {
+        // Fallback: insert the original URL as-is (e.g. network download failed)
+        await editorState.insertImageNode(src);
+        return;
+      }
+
+      final filename = '${const Uuid().v4()}$ext';
+      final destPath = fileStore.getAssetPath(mRecord.uuid, filename);
+      try {
+        fileStore.ensureAssetDir(mRecord.uuid);
+        await File(localPath).copy(destPath);
+      } catch (e) {
+        AppLogger.e('Editor', "[_handleInsertImage] copy asset failed: $e");
+        return;
+      } finally {
+        // Clean up the temp download file
+        if (isNetwork) {
+          try {
+            await File(localPath).delete();
+          } catch (_) {}
+        }
+      }
+
+      final relativeUrl = 'assets/${mRecord.uuid}/$filename';
+      await editorState.insertImageNode(relativeUrl);
+    }());
   }
 
   /// 统一的大纲面板外形：240 宽 + 圆角 4 + 边框。

@@ -71,6 +71,7 @@ class _UserResource {
     final expired = await db!.purgeRecycleRecordsBefore(threshold);
     for (final row in expired) {
       fileStore?.deleteRecyclerFile(row.uuid);
+      fileStore?.deleteAssetsDir(row.uuid);
     }
     if (expired.isNotEmpty) {
       AppLogger.w('Repository', "auto-purged ${expired.length} expired recycler entries (>30d)");
@@ -449,6 +450,7 @@ class Repository {
     )..where((t) => t.uuid.equals(uuid) & t.remoteVersion.equals(0))).go();
     if (rows == 0) return;
     fileStore?.deleteWorkFile(uuid);
+    fileStore?.deleteAssetsDir(uuid);
     await recordTree.deleteRecord(uuid);
     AppLogger.w('Repository', "purge unsynced record $uuid (local creation rolled back)");
   }
@@ -562,8 +564,16 @@ class Repository {
     if (record == null || !record.local.syncConflict) return;
 
     if (keepLocal) {
-      // Only align baseline version, keep all local edits
+      // Only align baseline version, keep all local edits.
+      //
+      // CRITICAL: clear .1 "already uploaded" markers. The remote side may have
+      // changed since our baseline (e.g. the other party edited away an image,
+      // and cleanupOrphanAssets deleted it from server). KeepLocal means our
+      // local content's asset list wins, and every image on that list must be
+      // re-uploaded on the next push — stale .1 markers would silently skip
+      // the upload and orphan images on the server forever.
       await db.updateRecord(uuid, version: record.local.remoteVersion);
+      fileStore.deleteAssetMarkers(uuid);
       final refreshed = await db.getRecord(uuid);
       if (refreshed != null) await recordTree.insertRecord(refreshed);
       AppLogger.i(
@@ -571,9 +581,24 @@ class Repository {
         "resolveConflict keepLocal uuid=$uuid align baseline to v${record.local.remoteVersion}",
       );
     } else {
-      // Discard local edits, fully overwrite with remote (same behavior as normal push success markSynced)
+      // Discard local edits, fully overwrite with remote.
+      //
+      // Asset handling: the remote base file (downloaded by _applyEditConflict
+      // earlier in the conflict flow) is already on disk. Parse its asset
+      // header and prune local assets to that set — images referenced by
+      // BOTH sides are kept (no redundant download later), only local
+      // additions that did not make it to the server are removed.
       await db.markSynced(uuid);
       fileStore.deleteWorkFile(uuid);
+      try {
+        final basePath = fileStore.getBaseFile(uuid);
+        final baseContent = File(basePath).readAsStringSync();
+        final remoteAssets = FileStore.extractAssetNames(baseContent).toSet();
+        fileStore.pruneAssetsKeepOnly(uuid, remoteAssets);
+      } catch (e) {
+        AppLogger.e('Repository', "resolveConflict keepRemote uuid=$uuid asset prune failed: $e");
+        // Prune failure is non-fatal — leave assets as-is, user can re-sync
+      }
       final refreshed = await db.getRecord(uuid);
       if (refreshed != null) await recordTree.insertRecord(refreshed);
       AppLogger.w('Repository', "resolveConflict keepRemote uuid=$uuid overwritten, remoteV=${record.remote.version}");
@@ -707,6 +732,7 @@ class Repository {
     if (db == null) return;
     await db.deleteRecycleRecord(uuid);
     fileStore?.deleteRecyclerFile(uuid);
+    fileStore?.deleteAssetsDir(uuid);
     AppLogger.w('Repository', "purge recycler record $uuid");
   }
 
@@ -718,6 +744,7 @@ class Repository {
     await db.deleteRecycleRecordsByGroup(groupId);
     for (final e in groupEntries) {
       fileStore?.deleteRecyclerFile(e.uuid);
+      fileStore?.deleteAssetsDir(e.uuid);
     }
     AppLogger.w('Repository', "purge folder recycler group $groupId, count:${groupEntries.length}");
   }
@@ -730,6 +757,7 @@ class Repository {
     await db.clearRecycleRecords();
     for (final row in rows) {
       fileStore?.deleteRecyclerFile(row.uuid);
+      fileStore?.deleteAssetsDir(row.uuid);
     }
     AppLogger.w('Repository', "clear recycler records, count:${rows.length}");
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:notee/filesync/file_store.dart';
@@ -261,6 +262,10 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
       }
     }
 
+    // Extract the body from the tagged note file (asset section is never encrypted).
+    final (_, body) = splitNoteContent(content);
+    content = body;
+
     // If record is locked, unlock via UnlockContentWidget (password input + errors inside widget)
     if (entry.local.locked == 1 && content.isNotEmpty) {
       // Try saved password first (auto re-unlock after remote refresh)
@@ -287,6 +292,109 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
   }
 
   (String content, String name) formatContent();
+
+  /// File-level header: [[tag1:len1,tag2:len2,...]]
+  /// - All section headers are collected here at the top of the file.
+  /// - The length after each tag is the section's UTF-8 byte length.
+  /// - Sections immediately follow "]]" in the order tags appear in the header.
+  static const String imageTag = 'image';
+  static const String contentTag = 'content';
+
+  /// Split file content into (assetNames, body) using the file-level header.
+  /// Backward compatible with the legacy first-line-JSON-array format and plain body.
+  static (List<String> assets, String body) splitNoteContent(String content) {
+    final bytes = utf8.encode(content);
+    // Quick reject: must start with "[["
+    if (bytes.length >= 2 && bytes[0] == 0x5B && bytes[1] == 0x5B) {
+      final closeIdx = _indexOfDoubleClose(bytes);
+      if (closeIdx > 1) {
+        // closeIdx points to the second ']' byte position; header ends after it.
+        final headerEnd = closeIdx + 1;
+        final headerStr = utf8.decode(bytes.sublist(2, closeIdx));
+        final sections = _parseHeader(headerStr);
+        if (sections.isNotEmpty) {
+          // Build tag → byte-offset mapping (section 0 starts at headerEnd).
+          final tagOffset = <String, ({int offset, int len})>{};
+          int cur = headerEnd;
+          for (final (tag, len) in sections) {
+            tagOffset[tag] = (offset: cur, len: len);
+            cur += len;
+          }
+          List<String> assets = <String>[];
+          final image = tagOffset[imageTag];
+          if (image != null && image.offset + image.len <= bytes.length) {
+            try {
+              assets = (jsonDecode(utf8.decode(bytes.sublist(image.offset, image.offset + image.len))) as List)
+                  .map((e) => e.toString())
+                  .toList();
+            } catch (_) {}
+          }
+          final contentSec = tagOffset[contentTag];
+          if (contentSec != null && contentSec.offset + contentSec.len <= bytes.length) {
+            return (
+              assets,
+              utf8.decode(bytes.sublist(contentSec.offset, contentSec.offset + contentSec.len), allowMalformed: true),
+            );
+          }
+          // No content section found — treat the whole bytes-after-header as body.
+          return (assets, utf8.decode(bytes.sublist(headerEnd), allowMalformed: true));
+        }
+      }
+    }
+    // Legacy format: first line may be a JSON-array asset header.
+    final idx = content.indexOf('\n');
+    if (idx < 0) return (<String>[], content);
+    final firstLine = content.substring(0, idx);
+    if (firstLine.trimLeft().startsWith('[')) {
+      try {
+        final list = jsonDecode(firstLine) as List;
+        return (list.map((e) => e.toString()).toList(), content.substring(idx + 1));
+      } catch (_) {
+        return (<String>[], content);
+      }
+    }
+    return (<String>[], content);
+  }
+
+  /// Build file content. All sections are UTF-8-encoded, so header lengths are
+  /// UTF-8 byte counts (cross-platform consistent).
+  static String buildNoteContent(List<String> assets, String body) {
+    final assetJson = jsonEncode(assets);
+    final assetBytes = utf8.encode(assetJson);
+    final bodyBytes = utf8.encode(body);
+    final header = '[[image:${assetBytes.length},content:${bodyBytes.length}]]';
+    final allBytes = <int>[...utf8.encode(header), ...assetBytes, ...bodyBytes];
+    return utf8.decode(allBytes);
+  }
+
+  /// Returns the index of the second ']' in the first occurrence of "]]" in bytes,
+  /// or -1 if not found. Only scans up to the first 4KB — caller guarantees the
+  /// file-level header always fits within that range.
+  static int _indexOfDoubleClose(List<int> bytes) {
+    const int limit = 4096;
+    final int n = bytes.length < limit ? bytes.length : limit;
+    for (int i = 1; i < n; i++) {
+      if (bytes[i - 1] == 0x5D && bytes[i] == 0x5D) return i;
+    }
+    return -1;
+  }
+
+  /// Parse the header content between "[[" and "]]" into [(tag, len), ...].
+  /// Format: "tag:len,tag:len,..."
+  static List<(String tag, int len)> _parseHeader(String header) {
+    final result = <(String, int)>[];
+    if (header.isEmpty) return result;
+    for (final part in header.split(',')) {
+      final colon = part.indexOf(':');
+      if (colon <= 0 || colon == part.length - 1) continue;
+      final tag = part.substring(0, colon).trim();
+      final lenStr = part.substring(colon + 1).trim();
+      final len = int.tryParse(lenStr);
+      if (tag.isEmpty || len == null || len < 0) continue;
+      result.add((tag, len));
+    }
+    return result;
+  }
 
   /// Save edit. Returns the Future tracking this save (or the in-flight one if coalesced).
   /// Coalesce strategy: if a save is already running AND new edits arrived, it chains a
@@ -362,16 +470,21 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
       return;
     }
     int effLocked = locked;
-    String? writeContent = content;
+    // The asset section (plaintext [[image]] block) must NEVER be encrypted.
+    // Split it off, encrypt only the body, then recombine before md5/write.
+    final (assets, body) = splitNoteContent(content);
+    String writeContent;
     if (password != null) {
-      final enc = Utils.encryptContent(content, password);
+      final enc = Utils.encryptContent(body, password);
       if (enc != null) {
-        writeContent = enc;
+        writeContent = buildNoteContent(assets, enc);
       } else {
         effLocked = 0;
+        writeContent = buildNoteContent(assets, body);
       }
     } else {
       effLocked = 0;
+      writeContent = buildNoteContent(assets, body);
     }
     // md5 is synchronous — compare before any await
     final md5 = Utils.generateMd5(writeContent);

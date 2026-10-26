@@ -1,11 +1,13 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:notee/ui/desktop/desktop_title_bar.dart';
+import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:notee/utils/kv_store.dart';
 import 'package:notee/utils/reboot.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/utils/utils.dart';
 import 'package:notee/l10n/app_localizations.dart';
+import 'package:appflowy_editor/appflowy_editor.dart' show assetPathResolver;
 
 /// Global app configuration + directory initialization.
 /// Project-specific constants/initialization, not generic.
@@ -87,6 +89,10 @@ class AppEnv {
     appRootDir = dir.path;
     prefs = KvStore('$appRootDir/prefs.json');
     prefs.save();
+
+    // Register the asset path resolver so image blocks can render relative
+    // "assets/..." paths as absolute filesystem paths without re-downloading.
+    assetPathResolver = (relative) => join(appRootDir, relative);
 
     final saved = AppEnv.prefs.getString(PrefKeys.filesPanelMode);
     AppEnv.filesPanelModeNotifier.value = saved != null

@@ -10,6 +10,7 @@ import 'package:notee/filesync/file_store.dart';
 import 'package:notee/filesync/path_utils.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/filesync/repository.dart';
+import 'package:notee/ui/editor/base_record_edit_page.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -118,6 +119,8 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
         _advance();
         continue;
       }
+      // Extract the content body; only the body is encrypted for locked records.
+      final (_, body) = BaseRecordEditPageState.splitNoteContent(content);
 
       String? plain;
       if (file.locked != 0) {
@@ -128,7 +131,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
           context: context,
           useRootNavigator: false,
           barrierDismissible: false,
-          builder: (_) => _PasswordDialog(file: file, encryptedRaw: content),
+          builder: (_) => _PasswordDialog(file: file, encryptedRaw: body),
         );
         if (!mounted || plain == null) {
           _skipped++;
@@ -136,7 +139,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
           continue;
         }
       } else {
-        plain = content;
+        plain = body;
       }
 
       try {

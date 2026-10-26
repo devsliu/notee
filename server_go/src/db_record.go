@@ -32,18 +32,19 @@ type Record struct {
 	Locked      int64  `json:"locked"`      // whether the note is locked; 0 = unlocked, non-0 = lock timestamp
 	Reminder    string `json:"reminder"`    // JSON array of reminder tasks, "" means no reminders
 	Tags        string `json:"tags"`        // comma-separated tag list, "" means no tags
+	Assets      string `json:"assets"`      // JSON array of asset filenames (plaintext header), "" means no assets
 }
 
-const recordColumns = "uuid, path, name, md5, version, createAt, editAt, deleteAt, fileEditAt, fileVersion, locked, reminder, tags"
+const recordColumns = "uuid, path, name, md5, version, createAt, editAt, deleteAt, fileEditAt, fileVersion, locked, reminder, tags, assets"
 
 func (e *Record) scanTargets() []interface{} {
 	return []interface{}{
 		&e.UUID, &e.Path, &e.Name, &e.MD5, &e.Version,
-		&e.CreateAt, &e.EditAt, &e.DeleteAt, &e.FileEditAt, &e.FileVersion, &e.Locked, &e.Reminder, &e.Tags,
+		&e.CreateAt, &e.EditAt, &e.DeleteAt, &e.FileEditAt, &e.FileVersion, &e.Locked, &e.Reminder, &e.Tags, &e.Assets,
 	}
 }
 
-func NewRecord(uuid, path, name, md5 string, createAt, editAt, deleteAt, version, fileEditAt, fileVersion, locked int64, reminder, tags string) *Record {
+func NewRecord(uuid, path, name, md5 string, createAt, editAt, deleteAt, version, fileEditAt, fileVersion, locked int64, reminder, tags, assets string) *Record {
 	return &Record{
 		UUID:        uuid,
 		Path:        path,
@@ -58,6 +59,7 @@ func NewRecord(uuid, path, name, md5 string, createAt, editAt, deleteAt, version
 		Locked:      locked,
 		Reminder:    reminder,
 		Tags:        tags,
+		Assets:      assets,
 	}
 }
 
@@ -76,13 +78,44 @@ func createRecordTableSql(userId int64) string {
 			fileVersion INTEGER NOT NULL DEFAULT 0,
 			locked INTEGER NOT NULL DEFAULT 0,
 			reminder TEXT NOT NULL DEFAULT '',
-			tags TEXT NOT NULL DEFAULT ''
+			tags TEXT NOT NULL DEFAULT '',
+			assets TEXT NOT NULL DEFAULT ''
 		);
 		CREATE INDEX IF NOT EXISTS idx_record_version_%d ON record_%d (version);`, userId, userId, userId)
 }
 
 func dropRecordTableSql(userId int64) string {
 	return fmt.Sprintf("DROP TABLE IF EXISTS record_%d;", userId)
+}
+
+// migrateRecordTableAssets adds the `assets` column to every existing per-user
+// record table. Tables created by new users already include it via
+// createRecordTableSql, so ALTER TABLE on those will fail with "duplicate
+// column name" — that error is ignored. Any other error is returned.
+func (db *DB) migrateRecordTableAssets() error {
+	rows, err := db.conn.Query("SELECT id FROM user")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	for _, id := range ids {
+		sqlStmt := fmt.Sprintf("ALTER TABLE record_%d ADD COLUMN assets TEXT NOT NULL DEFAULT ''", id)
+		if _, err := db.conn.Exec(sqlStmt); err != nil {
+			// "duplicate column name" means the table already has the column (new schema).
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // RecordUpsert carries the fields for an upsert operation.
@@ -100,6 +133,7 @@ type RecordUpsert struct {
 	Locked      *int64  `json:"locked"`
 	Reminder    *string `json:"reminder"`
 	Tags        *string `json:"tags"`
+	Assets      *string `json:"assets"`
 	BaseVersion int64   `json:"version"`
 }
 
@@ -125,6 +159,10 @@ func (db *DB) UpsertRecord(userId int64, u *RecordUpsert) (*Record, ResultCode) 
 	tags := ""
 	if u.Tags != nil {
 		tags = *u.Tags
+	}
+	assets := ""
+	if u.Assets != nil {
+		assets = *u.Assets
 	}
 	var resultRecord *Record
 	var conflictRecord *Record
@@ -180,6 +218,9 @@ func (db *DB) UpsertRecord(userId int64, u *RecordUpsert) (*Record, ResultCode) 
 			if same && u.Tags != nil {
 				same = tags == exist.Tags
 			}
+			if same && u.Assets != nil {
+				same = assets == exist.Assets
+			}
 			if !same {
 				conflictRecord = exist
 				bizResult = ResultErrorRecordConflict
@@ -232,6 +273,9 @@ func (db *DB) UpsertRecord(userId int64, u *RecordUpsert) (*Record, ResultCode) 
 		if u.Tags != nil {
 			setClauses = append(setClauses, "tags = excluded.tags")
 		}
+		if u.Assets != nil {
+			setClauses = append(setClauses, "assets = excluded.assets")
+		}
 		conditionalSet := strings.Join(setClauses, ", ")
 		if conditionalSet != "" {
 			conditionalSet = ", " + conditionalSet
@@ -239,7 +283,7 @@ func (db *DB) UpsertRecord(userId int64, u *RecordUpsert) (*Record, ResultCode) 
 
 		sqlStmt := fmt.Sprintf(`
 			INSERT INTO record_%d (`+recordColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(uuid) DO UPDATE SET
 				version    = excluded.version,
 				deleteAt   = 0,
@@ -247,7 +291,7 @@ func (db *DB) UpsertRecord(userId int64, u *RecordUpsert) (*Record, ResultCode) 
 				fileVersion = CASE WHEN ? AND excluded.md5 != md5 THEN fileVersion + 1 ELSE fileVersion END`+conditionalSet+`
 		`, userId)
 		args := []interface{}{
-			u.UUID, u.Path, u.Name, u.MD5, version, u.CreateAt, u.EditAt, u.FileEditAt, insertFileVersion, lockedVal, reminder, tags,
+			u.UUID, u.Path, u.Name, u.MD5, version, u.CreateAt, u.EditAt, u.FileEditAt, insertFileVersion, lockedVal, reminder, tags, assets,
 			u.MD5 != "", // for the fileVersion CASE WHEN
 		}
 		_, err = tx.Exec(sqlStmt, args...)

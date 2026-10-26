@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:notee/filesync/database.dart';
 import 'package:notee/filesync/http_api.dart';
 import 'package:notee/utils/app_logger.dart';
+import 'package:notee/utils/utils.dart';
 import 'package:path/path.dart';
 
 
@@ -53,6 +55,7 @@ class FileStore {
   late final String baseFilesDir;
   late final String workFilesDir;
   late final String recyclerFilesDir;
+  late final String assetsDir;
   final Map<String, _DownloadFile> _downloadFiles = {};
   AppDatabase? db;
   bool _closed = false;
@@ -72,6 +75,7 @@ class FileStore {
     baseFilesDir = join(rootDir, "base_files");
     workFilesDir = join(rootDir, "work_files");
     recyclerFilesDir = join(rootDir, "recycler");
+    assetsDir = join(rootDir, "assets");
     var files = Directory(baseFilesDir);
     if (!files.existsSync()) {
       files.createSync(recursive: true);
@@ -83,6 +87,152 @@ class FileStore {
     files = Directory(recyclerFilesDir);
     if (!files.existsSync()) {
       files.createSync(recursive: true);
+    }
+    files = Directory(assetsDir);
+    if (!files.existsSync()) {
+      files.createSync(recursive: true);
+    }
+  }
+
+  /// Per-record asset directory: assets/{uuid}/
+  String getAssetDir(String uuid) => join(assetsDir, uuid);
+
+  /// Full path to a single asset file: assets/{uuid}/{filename}
+  String getAssetPath(String uuid, String filename) => join(assetsDir, uuid, filename);
+
+  /// Marker file `<asset>.1` — an empty file signifying the asset has already
+  /// been uploaded to the server (or downloaded from it). Lets the sync loop
+  /// skip an HTTP HEAD check before re-uploading.
+  String getAssetMarkerPath(String uuid, String filename) => '${getAssetPath(uuid, filename)}.1';
+
+  /// Returns true if the upload marker exists for this asset.
+  bool hasAssetMarker(String uuid, String filename) => File(getAssetMarkerPath(uuid, filename)).existsSync();
+
+  /// Creates (or touches) the upload marker for an asset.
+  void markAssetUploaded(String uuid, String filename) {
+    try {
+      File(getAssetMarkerPath(uuid, filename)).writeAsBytesSync(<int>[]);
+    } catch (_) {}
+  }
+
+  /// Extract the asset filename list from a note file's content.
+  /// Supports the file-level header format [[tag:len,...]] and the legacy
+  /// first-line-JSON-array format. Returns [] when none.
+  static List<String> extractAssetNames(String content) {
+    List<String> parseAssetJson(String json) {
+      try {
+        return (jsonDecode(json) as List).map((e) => e.toString()).toList();
+      } catch (_) {
+        return const <String>[];
+      }
+    }
+
+    final bytes = utf8.encode(content);
+    if (bytes.length >= 2 && bytes[0] == 0x5B && bytes[1] == 0x5B) {
+      int closeIdx = -1;
+      const int limit = 4096;
+      final int n = bytes.length < limit ? bytes.length : limit;
+      for (int i = 1; i < n; i++) {
+        if (bytes[i - 1] == 0x5D && bytes[i] == 0x5D) {
+          closeIdx = i;
+          break;
+        }
+      }
+      if (closeIdx > 1) {
+        final headerEnd = closeIdx + 1;
+        final headerStr = utf8.decode(bytes.sublist(2, closeIdx));
+        final sections = <(String tag, int len)>[];
+        for (final part in headerStr.split(',')) {
+          final colon = part.indexOf(':');
+          if (colon <= 0 || colon == part.length - 1) continue;
+          final tag = part.substring(0, colon).trim();
+          final lenStr = part.substring(colon + 1).trim();
+          final len = int.tryParse(lenStr);
+          if (tag.isEmpty || len == null || len < 0) continue;
+          sections.add((tag, len));
+        }
+        int cur = headerEnd;
+        for (final (tag, len) in sections) {
+          if (tag == 'image') {
+            if (cur + len <= bytes.length) {
+              return parseAssetJson(utf8.decode(bytes.sublist(cur, cur + len)));
+            }
+            break;
+          }
+          cur += len;
+        }
+      }
+    }
+    // Legacy format: first line may be a JSON-array asset header.
+    final nl = content.indexOf('\n');
+    if (nl < 0) return const <String>[];
+    final firstLine = content.substring(0, nl);
+    if (!firstLine.trimLeft().startsWith('[')) return const <String>[];
+    return parseAssetJson(firstLine);
+  }
+
+  /// Ensure the per-record asset directory exists and return its path.
+  String ensureAssetDir(String uuid) {
+    final dir = Directory(getAssetDir(uuid));
+    if (!dir.existsSync()) {
+      dir.createSync(recursive: true);
+    }
+    return dir.path;
+  }
+
+  /// Delete the entire per-record asset directory (used when the record is deleted).
+  void deleteAssetsDir(String uuid) {
+    final dir = Directory(getAssetDir(uuid));
+    if (dir.existsSync()) {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (e) {
+        AppLogger.e('FileStore', "[deleteAssetsDir] uuid=$uuid failed: $e");
+      }
+    }
+  }
+
+  /// Remove all "already uploaded" markers (*.1 files) from the per-record
+  /// asset directory, while preserving the actual image files.
+  ///
+  /// Used after the server has confirmed the record deletion — the server also
+  /// deletes its copy of the assets, so if the user restores from recycle bin
+  /// the images must be re-uploaded. Leaving stale .1 markers would silently
+  /// skip the re-upload and permanently orphan the images on the server.
+  void deleteAssetMarkers(String uuid) {
+    final dir = Directory(getAssetDir(uuid));
+    if (!dir.existsSync()) return;
+    try {
+      for (final entity in dir.listSync()) {
+        if (entity is File && entity.path.endsWith('.1')) {
+          entity.deleteSync();
+        }
+      }
+    } catch (e) {
+      AppLogger.e('FileStore', "[deleteAssetMarkers] uuid=$uuid failed: $e");
+    }
+  }
+
+  /// Keep only asset files whose basename (after stripping the optional ".1"
+  /// marker suffix) is in [keep]. Everything else — orphan images, stale
+  /// markers, or stale marker-image pairs — is deleted.
+  ///
+  /// Used at keepRemote conflict resolution: the remote version's asset list
+  /// wins, so we prune local additions that did not make it to the server.
+  void pruneAssetsKeepOnly(String uuid, Set<String> keep) {
+    final dir = Directory(getAssetDir(uuid));
+    if (!dir.existsSync()) return;
+    try {
+      for (final entity in dir.listSync()) {
+        if (entity is! File) continue;
+        final name = basename(entity.path);
+        final base = name.endsWith('.1') ? name.substring(0, name.length - 2) : name;
+        if (!keep.contains(base)) {
+          entity.deleteSync();
+        }
+      }
+    } catch (e) {
+      AppLogger.e('FileStore', "[pruneAssetsKeepOnly] uuid=$uuid failed: $e");
     }
   }
 
@@ -201,7 +351,7 @@ class FileStore {
     final workFile = File(getWorkFile(uuid));
     final baseFile = File(getBaseFile(uuid));
     if (workFile.existsSync()) {
-      _moveFile(workFile, File(getRecyclerFile(uuid)));
+      Utils.moveFile(workFile, File(getRecyclerFile(uuid)));
       // Base is the stale synced baseline; delete it so it cannot be mistaken for live content.
       if (baseFile.existsSync()) {
         try {
@@ -212,7 +362,7 @@ class FileStore {
       }
       _fireChanged(uuid, ContentFileEventType.move);
     } else if (baseFile.existsSync()) {
-      _moveFile(baseFile, File(getRecyclerFile(uuid)));
+      Utils.moveFile(baseFile, File(getRecyclerFile(uuid)));
       _fireChanged(uuid, ContentFileEventType.move);
     }
   }
@@ -221,7 +371,7 @@ class FileStore {
   void moveRecyclerFileToWork(String uuid) {
     final src = File(getRecyclerFile(uuid));
     if (!src.existsSync()) return;
-    _moveFile(src, File(getWorkFile(uuid)));
+    Utils.moveFile(src, File(getWorkFile(uuid)));
     _fireChanged(uuid, ContentFileEventType.move);
   }
 
@@ -229,23 +379,8 @@ class FileStore {
   void moveWorkFileToRecycler(String uuid) {
     final src = File(getWorkFile(uuid));
     if (!src.existsSync()) return;
-    _moveFile(src, File(getRecyclerFile(uuid)));
+    Utils.moveFile(src, File(getRecyclerFile(uuid)));
     _fireChanged(uuid, ContentFileEventType.move);
-  }
-
-  void _moveFile(File src, File dst) {
-    try {
-      // Windows rename does not overwrite existing files, remove target first
-      if (dst.existsSync()) {
-        dst.deleteSync();
-      }
-      src.renameSync(dst.absolute.path);
-    } on FileSystemException {
-      // When source/target are on different filesystems (e.g. mounted drives/removable storage),
-      // rename will fail; fall back to copy+delete to ensure content is not lost
-      src.copySync(dst.absolute.path);
-      src.deleteSync();
-    }
   }
 
   /// Download base file. Determine whether download is needed by comparing server-side remoteFileVersion
@@ -332,6 +467,8 @@ class FileStore {
       if (!isWorkFileExist(uuid)) {
         _fireChanged(uuid, ContentFileEventType.download);
       }
+      // Assets are now downloaded on-demand when the user opens the note, so
+      // the previous fire-and-forget downloadRecordAssets call is removed.
       return true;
     } catch (e) {
       rethrow;
@@ -343,6 +480,42 @@ class FileStore {
       // it, and removing theirs would break the dedup chain.
       if (identical(_downloadFiles[uuid], entry)) {
         _downloadFiles.remove(uuid);
+      }
+    }
+  }
+
+  /// Parse the base file's plaintext asset header line and download any
+  /// referenced asset files that are missing locally. Failures are logged,
+  /// never thrown (a missing image should not break the sync flow).
+  Future<void> downloadRecordAssets(String uuid) async {
+    if (_closed) return;
+    final file = File(getBaseFile(uuid));
+    if (!file.existsSync()) return;
+    String content;
+    try {
+      content = file.readAsStringSync();
+    } catch (e) {
+      AppLogger.e('FileStore', "[downloadRecordAssets] uuid=$uuid read base failed: $e");
+      return;
+    }
+    final names = FileStore.extractAssetNames(content);
+    if (names.isEmpty) return;
+    ensureAssetDir(uuid);
+    for (final name in names) {
+      if (_closed) break;
+      final localPath = getAssetPath(uuid, name);
+      if (File(localPath).existsSync()) {
+        // Already present locally — make sure it has the upload marker too
+        // (it came from a previous download, or was inserted locally and
+        // uploaded). Idempotent.
+        markAssetUploaded(uuid, name);
+        continue;
+      }
+      final ok = await HttpApi.downloadAsset(uuid, name, localPath);
+      if (ok) {
+        markAssetUploaded(uuid, name);
+      } else {
+        AppLogger.e('FileStore', "[downloadRecordAssets] uuid=$uuid name=$name download failed");
       }
     }
   }
@@ -387,39 +560,21 @@ class FileStore {
   /// Create/overwrite work file. Write to temp file first then rename (back up old file to .bak first),
   /// to avoid "delete then write" leaving missing or corrupted target file on write failure/process interruption
   Future<void> createWorkFile(String uuid, String content) async {
+    await createWorkFileBytes(uuid, utf8.encode(content));
+  }
+
+  Future<void> createWorkFileBytes(String uuid, List<int> bytes) async {
     final file = File(getWorkFile(uuid));
-    final tmpFile = File('${file.path}.creating');
-    final bakFile = File('${file.path}.bak');
-    await tmpFile.writeAsString(content);
-    if (await file.exists()) {
-      try {
-        await file.rename(bakFile.path);
-      } catch (e) {
-        // Old file cannot be moved (locked/permission), fall back to direct delete
-        AppLogger.e('FileStore', "[createWorkFile] uuid=$uuid failed to back up old file, trying direct delete: $e");
-        await file.delete();
-      }
-    }
-    try {
-      await tmpFile.rename(file.path);
-    } catch (e) {
-      // If rename fails and target is missing, restore backup so user always has the previous version readable
-      if (!await file.exists() && await bakFile.exists()) {
-        try {
-          await bakFile.rename(file.path);
-        } catch (restoreErr) {
-          AppLogger.e('FileStore', "[createWorkFile] uuid=$uuid failed to restore backup: $restoreErr");
-        }
-      }
-      rethrow;
-    }
-    if (await bakFile.exists()) {
-      try {
-        await bakFile.delete();
-      } catch (_) {
-        // Backup residue does not affect main flow, ignore
-      }
-    }
+    await Utils.atomicWriteFile(
+      file,
+      (tmp) => tmp.writeAsBytes(bytes),
+      onBackupFailed: (e) {
+        AppLogger.e(
+          'FileStore',
+          "[createWorkFileBytes] uuid=$uuid failed to back up old file (locked/permission) or restore backup: $e",
+        );
+      },
+    );
     _fireChanged(uuid, ContentFileEventType.create);
   }
 

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:notee/filesync/remote_record.dart';
 import 'package:notee/filesync/user.dart';
 import 'package:notee/utils/app_logger.dart';
+import 'package:notee/utils/utils.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/http.dart';
 import 'package:http/io_client.dart';
@@ -217,47 +218,24 @@ class HttpApi {
         final headerFileVersion = int.tryParse(response.headers['x-record-fileversion'] ?? '') ?? 0;
         final headerMd5 = response.headers['x-record-md5'] ?? '';
         // Write to temp file first then rename: network interruption/response truncation won't leave corrupted file at the final path
-        final tmpFile = File('$toFile.downloading');
         final file = File(toFile);
-        final bakFile = File('$toFile.bak');
-        IOSink? sink;
         try {
-          await tmpFile.create(recursive: true);
-          sink = tmpFile.openWrite();
-          await response.stream.pipe(sink).timeout(Duration(seconds: 120));
-          await sink.close();
-          sink = null;
-          // On Windows, rename does not overwrite existing files, first back up old file to .bak,
-          // to avoid target file loss caused by delete-then-rename failure
-          if (await file.exists()) {
-            try {
-              await file.rename(bakFile.path);
-            } catch (e) {
-              AppLogger.e('HttpApi', "[downloadFile] failed to back up old file: $e");
+          await Utils.atomicWriteFile(
+            file,
+            (tmp) async {
+              final sink = tmp.openWrite();
+              try {
+                await response.stream.pipe(sink).timeout(Duration(seconds: 120));
+              } finally {
+                await sink.close();
             }
-          }
-          try {
-            await tmpFile.rename(file.path); // Same directory rename, no cross-disk involved
-          } catch (e) {
-            AppLogger.e('HttpApi', "[downloadFile] rename failed: $e");
-            rethrow;
-          }
-          // Clean up backup file
-          await bakFile.delete().catchError((_) => bakFile);
+            },
+            onBackupFailed: (e) {
+              AppLogger.e('HttpApi', "[downloadFile] backup/restore failed: $e");
+            },
+          );
         } catch (e) {
-          // close's own exception must not mask the original download error
-          await sink?.close().catchError((_) {});
-          if (await tmpFile.exists()) {
-            await tmpFile.delete();
-          }
-          // When rename fails, target file has been moved to .bak, must restore it, otherwise user has no file to read temporarily
-          if (!await file.exists() && await bakFile.exists()) {
-            try {
-              await bakFile.rename(file.path);
-            } catch (restoreErr) {
-              AppLogger.e('HttpApi', "[downloadFile] failed to restore backup file: $restoreErr");
-            }
-          }
+          AppLogger.e('HttpApi', "[downloadFile] write failed: $e");
           rethrow;
         }
         return ApiResult.success(DownloadFileMeta(headerFileVersion, headerMd5));
@@ -272,6 +250,66 @@ class HttpApi {
   static Future<void> setTokenToRequest(http.BaseRequest req) async {
     req.headers['x-user-id'] = '${UserManager.current.id}';
     req.headers['x-token'] = UserManager.current.token ?? "";
+  }
+
+  // =========================================================================
+  // 🎯 Asset (per-record image) APIs
+  // =========================================================================
+
+  /// HEAD an asset file to check existence. Returns true if the server has it.
+  static Future<bool> headAsset(String recordUuid, String filename) async {
+    final result = await _apiWrapper<bool>("headAsset $recordUuid/$filename", (client, baseUrl) async {
+      final url = '$baseUrl/asset/$recordUuid/${Uri.encodeComponent(filename)}';
+      final req = http.Request('HEAD', Uri.parse(url));
+      await setTokenToRequest(req);
+      final resp = await client.send(req).timeout(_receiveTimeout);
+      // Drain the (empty) body so the connection is reusable.
+      await resp.stream.drain();
+      return ApiResult.success(resp.statusCode == 200);
+    });
+    return result.data ?? false;
+  }
+
+  /// Upload a single asset file to the server (PUT /asset/{recordUuid}/{filename}).
+  static Future<ApiResult<void>> uploadAsset(String recordUuid, String filename, String filePath) async {
+    return _apiWrapper("uploadAsset $recordUuid/$filename", (client, baseUrl) async {
+      final url = '$baseUrl/asset/$recordUuid/${Uri.encodeComponent(filename)}';
+      final req = http.MultipartRequest('PUT', Uri.parse(url));
+      await setTokenToRequest(req);
+      req.files.add(await http.MultipartFile.fromPath('file', filePath, filename: filename));
+      req.headers.remove('content-length');
+      final resp = await Response.fromStream(await client.send(req).timeout(_sendTimeout + Duration(seconds: 30)));
+      final rawBody = utf8.decode(resp.bodyBytes);
+      if (resp.statusCode == 200) {
+        return ApiResult.success(null, rawData: rawBody);
+      }
+      return ApiResult(resp.statusCode, rawBody, null, rawData: rawBody);
+    });
+  }
+
+  /// Download a single asset file to [localPath]. Returns true on success.
+  static Future<bool> downloadAsset(String recordUuid, String filename, String localPath) async {
+    final result = await _apiWrapper<bool>("downloadAsset $recordUuid/$filename", (client, baseUrl) async {
+      final url = '$baseUrl/asset/$recordUuid/${Uri.encodeComponent(filename)}';
+      final req = http.Request('GET', Uri.parse(url));
+      await setTokenToRequest(req);
+      final response = await client.send(req).timeout(_receiveTimeout);
+      if (response.statusCode == 200) {
+        final file = File(localPath);
+        await Utils.atomicWriteFile(file, (tmp) async {
+          final sink = tmp.openWrite();
+          try {
+            await response.stream.pipe(sink).timeout(const Duration(seconds: 120));
+          } finally {
+            await sink.close();
+          }
+        });
+        return ApiResult.success(true);
+      }
+      await response.stream.drain();
+      return ApiResult(response.statusCode, "asset download failed: ${response.statusCode}", false);
+    });
+    return result.data ?? false;
   }
 
   /// Upsert a record. Fields that are null in [item] are omitted from the request so

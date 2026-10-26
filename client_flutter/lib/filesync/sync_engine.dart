@@ -195,6 +195,7 @@ class SyncEngine {
             fileActions.add(() {
               fileStore.deleteBaseFile(remote.uuid);
               fileStore.deleteWorkFile(remote.uuid);
+              fileStore.deleteAssetsDir(remote.uuid);
             });
           } else {
             // Local modified, remote deleted, will push later
@@ -366,6 +367,7 @@ class SyncEngine {
         for (var uuid in uuids) {
           fileStore.deleteBaseFile(uuid);
           fileStore.deleteWorkFile(uuid);
+          fileStore.deleteAssetsDir(uuid);
         }
       }
       AppLogger.w('SyncEngine', "full pull and delete $count records, purge version:$purgedVersion");
@@ -441,6 +443,40 @@ class SyncEngine {
     if (refreshed != null) await recordTree?.insertRecord(refreshed);
   }
 
+  /// Upload the assets referenced by a record's work file to the server.
+  /// Reads the plaintext asset header line, then for each filename: HEAD-check
+  /// the server and PUT only missing files. Failures are logged, not thrown.
+  Future<void> _uploadRecordAssets(String uuid, String workFilePath) async {
+    final file = File(workFilePath);
+    if (!file.existsSync()) return;
+    String content;
+    try {
+      content = file.readAsStringSync();
+    } catch (_) {
+      return;
+    }
+    final names = FileStore.extractAssetNames(content);
+    if (names.isEmpty) return;
+    for (final name in names) {
+      if (_closed) break;
+      final localPath = fileStore.getAssetPath(uuid, name);
+      if (!File(localPath).existsSync()) continue;
+      // Local marker `<name>.1` means the asset is already on the server;
+      // skip the HTTP HEAD check entirely.
+      if (fileStore.hasAssetMarker(uuid, name)) continue;
+      try {
+        final result = await HttpApi.uploadAsset(uuid, name, localPath);
+        if (result.isSuccess()) {
+          fileStore.markAssetUploaded(uuid, name);
+        } else {
+          AppLogger.e('SyncEngine', "upload asset failed uuid=$uuid name=$name: ${result.message}");
+        }
+      } catch (e) {
+        AppLogger.e('SyncEngine', "upload asset exception uuid=$uuid name=$name: $e");
+      }
+    }
+  }
+
   Future<void> pushRecords() async {
     int pushedDeletes = 0;
     int pushedEdits = 0;
@@ -465,24 +501,37 @@ class SyncEngine {
           continue;
         }
         if (result.isSuccess() || result.code == HttpApi.kResultErrorRecordNotFound) {
-          // Recycle bin capture already happened at delete time (Repository.deleteRecord/deleteFolder).
-          // Only delete DB + files on successful request, prevent data loss from network failure
+          // Server confirmed the deletion. Local recycle-bin capture (metadata
+          // snapshot + recycler content file + assets dir) stays intact so the
+          // user can still restore from recycle bin — the restore path moves
+          // the content file back to work/ and re-upserts as a fresh record.
+          //
+          // BUT: the server also deletes its copy of the assets, so we MUST
+          // clear the local .1 "already uploaded" markers. Leaving them in
+          // place would cause _uploadRecordAssets to silently skip the
+          // re-upload after restore, permanently orphaning images on the server.
           await db.deleteRecord(entry.local.uuid);
           await recordTree?.deleteRecord(entry.local.uuid);
-          fileStore.deleteBaseFile(entry.local.uuid);
-          fileStore.deleteWorkFile(entry.local.uuid);
+          fileStore.deleteAssetMarkers(entry.local.uuid);
           pushedDeletes++;
           logs.add(
             "delete record ${entry.local.uuid} ${entry.local.path}${entry.local.name} version:${entry.local.remoteVersion}",
           );
         } else if (result.code == HttpApi.kResultErrorRecordConflict) {
           conflicts++;
-          // Server rejected deletion (record modified by someone else), restore to latest remote state.
-          // Undo the recycle-bin capture made at delete time: move content file back to work folder
-          // and drop the recycler row, so the restored record is not duplicated in the recycle bin.
+          // Server rejected deletion (record modified by someone else).
+          // Undo the recycle-bin capture made at delete time: move content file
+          // back to work folder and drop the recycler row, so the restored
+          // record is not duplicated in the recycle bin.
+          //
+          // Also clear .1 markers — the other party's edit may have triggered
+          // server-side cleanupOrphanAssets that removed images our restored
+          // content still references. Without clearing, stale markers would
+          // silently skip re-upload on the next push and orphan images.
           try {
             fileStore.moveRecyclerFileToWork(entry.local.uuid);
             await db.deleteRecycleRecord(entry.local.uuid);
+            fileStore.deleteAssetMarkers(entry.local.uuid);
             logs.add("undo recycler capture uuid=${entry.local.uuid}");
           } catch (e) {
             logs.add("undo recycler capture failed uuid=${entry.local.uuid}: $e");
@@ -550,6 +599,12 @@ class SyncEngine {
 
       final file = File(fileStore.getWorkFile(entry.local.uuid));
       final fileExist = file.existsSync();
+
+      // Upload referenced assets first (HEAD-check then PUT) so the server
+      // never receives content referencing missing files.
+      if (fileExist) {
+        await _uploadRecordAssets(entry.local.uuid, file.absolute.path);
+      }
 
       final item = _buildUpsertItem(entry);
       final result = await HttpApi.upsertRecord(
