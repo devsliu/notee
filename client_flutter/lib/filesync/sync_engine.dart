@@ -506,6 +506,7 @@ class SyncEngine {
           // re-upload after restore, permanently orphaning images on the server.
           await db.deleteRecord(entry.local.uuid);
           await recordTree?.deleteRecord(entry.local.uuid);
+          fileStore.deleteBaseFile(entry.local.uuid);
           fileStore.deleteAssetMarkers(entry.local.uuid);
           pushedDeletes++;
           logs.add(
