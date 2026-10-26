@@ -9,7 +9,40 @@ import 'database.dart';
 import 'remote_record.dart';
 import 'table_record.dart';
 
-export 'path_utils.dart';
+// ============================================================================
+// Record path utilities — "slash-prefixed and slash-suffixed" folder paths
+// ============================================================================
+
+/// Pure functions for the record tree's folder path convention: every folder
+/// path starts with `/` and ends with `/` (e.g. `/work/flutter/`), the root
+/// is `/`.  These depend on no state.
+class RecordPath {
+  /// Parent folder path of [path]. e.g. `/work/flutter/` → `/work/`.
+  static String dirname(String path) {
+    if (path == '/' || path.isEmpty) return '/';
+    final lastSlashIndex = path.lastIndexOf('/', path.length - 2);
+    if (lastSlashIndex <= 0) return '/';
+    return path.substring(0, lastSlashIndex + 1);
+  }
+
+  /// Node name of [path]. e.g. `/work/flutter/` → `flutter`.
+  static String basename(String path) {
+    if (path == '/' || path.isEmpty) return '';
+    final cleanPath = path.endsWith('/') ? path.substring(0, path.length - 1) : path;
+    final lastSlashIndex = cleanPath.lastIndexOf('/');
+    if (lastSlashIndex == -1) return cleanPath;
+    return cleanPath.substring(lastSlashIndex + 1);
+  }
+
+  /// Normalize a folder path: ensure it starts with `/` and ends with `/`,
+  /// collapsing consecutive slashes.
+  static String normalizePath(String path) {
+    if (path == '/' || path.isEmpty) return '/';
+    if (!path.endsWith('/')) path += '/';
+    if (!path.startsWith('/')) path = '/$path';
+    return path.replaceAll(RegExp(r'/+'), '/');
+  }
+}
 
 // ============================================================================
 // Record model helpers (tag extraction, DB convenience extensions)

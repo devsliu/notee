@@ -472,7 +472,7 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     }
     // Collect asset filenames referenced by image nodes (relative
     // assets/{recordUuid}/{filename} → strip prefix to {filename}).
-    final assetNames = DocumentImage.collectAssetNames(editorState.document, mRecord.uuid);
+    final assetNames = DocumentImage.collectAssetNames(editorState.document);
     final content = jsonString; // body only; assetNames passed separately to saveWorkFile
     return (content, name, assetNames);
   }

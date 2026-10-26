@@ -118,7 +118,7 @@ class TreeContentFolder extends TreeContent {
   TreeContentFolder(super._path, super.name);
 
   @override
-  String get dir => dirname(_path);
+  String get dir => RecordPath.dirname(_path);
   @override
   String get key => _path;
 }
@@ -295,7 +295,7 @@ class RecordTree extends TreeNode {
 
       _foldersMap.remove(current);
       event?.addDeleteFolder(current);
-      String parentDir = dirname(current);
+      String parentDir = RecordPath.dirname(current);
       _foldersMap[parentDir]?.removeChild(current);
 
       current = parentDir;
@@ -310,7 +310,7 @@ class RecordTree extends TreeNode {
 
     bool isNew = false;
     TreeNode? node = _filesMap[newRecord.local.uuid];
-    final newFolderPath = normalizePath(newRecord.local.path);
+    final newFolderPath = RecordPath.normalizePath(newRecord.local.path);
     final TreeContentFile? oldFile = node?.content as TreeContentFile?;
     _conflictMap.remove(newRecord.local.uuid);
     if (newRecord.local.syncConflict) {
@@ -395,7 +395,7 @@ class RecordTree extends TreeNode {
   }
 
   Future<void> deleteFolder(String folderPath) async {
-    folderPath = normalizePath(folderPath);
+    folderPath = RecordPath.normalizePath(folderPath);
     final folder = _foldersMap[folderPath];
     if (folder == null) return;
     final event = RecordEvent();
@@ -406,14 +406,14 @@ class RecordTree extends TreeNode {
   }
 
   Future<void> renameFolder(String oldFolderPath, String newFolderPath, int time) async {
-    final oldPath = normalizePath(oldFolderPath);
-    final newPath = normalizePath(newFolderPath);
+    final oldPath = RecordPath.normalizePath(oldFolderPath);
+    final newPath = RecordPath.normalizePath(newFolderPath);
 
     if (oldPath == newPath || oldPath == '/') return;
 
     final sourceFolder = findFolder(oldPath);
     if (sourceFolder == null) return;
-    final sourceParent = findFolder(dirname(sourceFolder.content.path));
+    final sourceParent = findFolder(RecordPath.dirname(sourceFolder.content.path));
     if (sourceParent == null) return;
 
     // Collect affected file uuids BEFORE merge (merge moves/recreates nodes).
@@ -489,7 +489,7 @@ class RecordTree extends TreeNode {
 
     final content = currentFolder.content;
     content._path = updatedFolderPath;
-    content._name = basename(updatedFolderPath);
+    content._name = RecordPath.basename(updatedFolderPath);
     _foldersMap[updatedFolderPath] = currentFolder;
 
     for (final node in currentFolder.children) {
@@ -504,7 +504,7 @@ class RecordTree extends TreeNode {
   }
 
   TreeNode? findFolder(String path) {
-    return _foldersMap[normalizePath(path)];
+    return _foldersMap[RecordPath.normalizePath(path)];
   }
 
   Future<void> createFolder(String path) async {

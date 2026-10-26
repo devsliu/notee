@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:notee/filesync/database.dart';
 import 'package:notee/filesync/http_api.dart';
-import 'package:notee/filesync/record_ext.dart' show isRemoteUrl, extractAssetFilename;
+import 'package:notee/filesync/record_ext.dart' show isRemoteUrl, extractAssetFilename, RecordPath;
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/utils/dedup_task_queue.dart';
 import 'package:notee/utils/utils.dart';
@@ -48,7 +48,47 @@ class ContentFileEvent {
   ContentFileEvent(this.uuid, this.type);
 }
 
+/// Manages all on-disk files for a single user.
+///
+/// Directory layout (under [rootDir], one per user/guest):
+///
+/// ```
+/// {rootDir}/
+/// ├── records0.db              # local record metadata (drift sqlite)
+/// ├── search0.db               # full-text search index
+/// ├── base_files/              # synced baseline: last confirmed server version
+/// │   └── {recordUuid}         #   plaintext content file (with [[image]] header)
+/// ├── work_files/              # local in-progress edits
+/// │   └── {recordUuid}         #   current work content (may differ from base)
+/// ├── recycler/                # soft-deleted content awaiting restore/purge
+/// │   └── {recordUuid}         #   moved here at delete time, restored on undo
+/// └── assets/                  # per-record image attachments
+///     └── {recordUuid}/        #   one folder per record
+///         ├── {filename}       #     image file (uuid-named when editor-inserted)
+///         └── {filename}.1     #     empty marker: already uploaded to server
+///
+/// {appCacheRoot}/notee_images/ # network-image cache (shared across users,
+///                              #   system-managed, may be cleared)
+///     └── {md5(url)}.{ext}
+/// ```
+///
+/// Lifecycle rules:
+/// - `base_files` is the synced baseline; `work_files` is the editable copy.
+///   A successful push moves work → base; a successful pull writes base (work
+///   is left untouched so local edits survive).
+/// - On delete, the work file is moved to `recycler` (base is deleted); the
+///   `assets/{recordUuid}` folder is left intact so restore works. 30-day expiry
+///   or manual purge deletes both the recycler file and the assets folder.
+/// - `assets/{recordUuid}/{filename}.1` markers mean "this asset is already on
+///   the server"; the sync loop skips re-uploading marked assets. Markers are
+///   cleared whenever the server side is known to be uncertain (delete success,
+///   conflict undo, keepLocal resolution).
 class FileStore {
+  static const baseFilesDirName = 'base_files';
+  static const workFilesDirName = 'work_files';
+  static const recyclerFilesDirName = 'recycler';
+  static const assetsDirName = 'assets';
+
   final String rootDir;
   final String appCacheRoot;
   late final String baseFilesDir;
@@ -71,10 +111,10 @@ class FileStore {
   }
 
   FileStore(this.rootDir, [String? appCacheRoot]) : appCacheRoot = appCacheRoot ?? rootDir {
-    baseFilesDir = join(rootDir, "base_files");
-    workFilesDir = join(rootDir, "work_files");
-    recyclerFilesDir = join(rootDir, "recycler");
-    assetsDir = join(rootDir, "assets");
+    baseFilesDir = join(rootDir, baseFilesDirName);
+    workFilesDir = join(rootDir, workFilesDirName);
+    recyclerFilesDir = join(rootDir, recyclerFilesDirName);
+    assetsDir = join(rootDir, assetsDirName);
     imageCacheDir = join(this.appCacheRoot, "notee_images");
     var files = Directory(baseFilesDir);
     if (!files.existsSync()) {
@@ -173,7 +213,7 @@ class FileStore {
     try {
       for (final entity in dir.listSync()) {
         if (entity is! File) continue;
-        final name = basename(entity.path);
+        final name = RecordPath.basename(entity.path);
         final base = name.endsWith('.1') ? name.substring(0, name.length - 2) : name;
         if (!keep.contains(base)) {
           entity.deleteSync();

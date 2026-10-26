@@ -256,20 +256,6 @@ class HttpApi {
   // 🎯 Asset (per-record image) APIs
   // =========================================================================
 
-  /// HEAD an asset file to check existence. Returns true if the server has it.
-  static Future<bool> headAsset(String recordUuid, String filename) async {
-    final result = await _apiWrapper<bool>("headAsset $recordUuid/$filename", (client, baseUrl) async {
-      final url = '$baseUrl/asset/$recordUuid/${Uri.encodeComponent(filename)}';
-      final req = http.Request('HEAD', Uri.parse(url));
-      await setTokenToRequest(req);
-      final resp = await client.send(req).timeout(_receiveTimeout);
-      // Drain the (empty) body so the connection is reusable.
-      await resp.stream.drain();
-      return ApiResult.success(resp.statusCode == 200);
-    });
-    return result.data ?? false;
-  }
-
   /// Upload a single asset file to the server (PUT /asset/{recordUuid}/{filename}).
   static Future<ApiResult<void>> uploadAsset(String recordUuid, String filename, String filePath) async {
     return _apiWrapper("uploadAsset $recordUuid/$filename", (client, baseUrl) async {

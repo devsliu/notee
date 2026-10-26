@@ -495,18 +495,11 @@ class SyncEngine {
           continue;
         }
         if (result.isSuccess() || result.code == HttpApi.kResultErrorRecordNotFound) {
-          // Server confirmed the deletion. Local recycle-bin capture (metadata
-          // snapshot + recycler content file + assets dir) stays intact so the
-          // user can still restore from recycle bin — the restore path moves
-          // the content file back to work/ and re-upserts as a fresh record.
-          //
-          // BUT: the server also deletes its copy of the assets, so we MUST
-          // clear the local .1 "already uploaded" markers. Leaving them in
-          // place would cause _uploadRecordAssets to silently skip the
-          // re-upload after restore, permanently orphaning images on the server.
           await db.deleteRecord(entry.local.uuid);
           await recordTree?.deleteRecord(entry.local.uuid);
           fileStore.deleteBaseFile(entry.local.uuid);
+          fileStore.deleteWorkFile(entry.local.uuid);
+          //dont delete asset files, only delete markers, so restore can re-upload assets
           fileStore.deleteAssetMarkers(entry.local.uuid);
           pushedDeletes++;
           logs.add(
@@ -514,15 +507,6 @@ class SyncEngine {
           );
         } else if (result.code == HttpApi.kResultErrorRecordConflict) {
           conflicts++;
-          // Server rejected deletion (record modified by someone else).
-          // Undo the recycle-bin capture made at delete time: move content file
-          // back to work folder and drop the recycler row, so the restored
-          // record is not duplicated in the recycle bin.
-          //
-          // Also clear .1 markers — the other party's edit may have triggered
-          // server-side cleanupOrphanAssets that removed images our restored
-          // content still references. Without clearing, stale markers would
-          // silently skip re-upload on the next push and orphan images.
           try {
             fileStore.moveRecyclerFileToWork(entry.local.uuid);
             await db.deleteRecycleRecord(entry.local.uuid);

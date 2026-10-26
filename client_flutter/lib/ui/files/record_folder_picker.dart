@@ -1,4 +1,4 @@
-import 'package:notee/filesync/path_utils.dart';
+import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/config/language_manager.dart';
@@ -34,7 +34,7 @@ class RecordFolderPickerState extends State<RecordFolderPicker> {
   }
 
   String get currentPath {
-    return normalizePath(_pathController.text.trim());
+    return RecordPath.normalizePath(_pathController.text.trim());
   }
 
   List<String> get _currentFolderNames {

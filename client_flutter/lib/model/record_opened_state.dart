@@ -64,7 +64,7 @@ class RecordOpenedState {
       final current = openedFolderNotifier.value;
       for (final deletedPath in event.deleteFolders!) {
         if (current == deletedPath || current.startsWith(deletedPath)) {
-          setOpenedFolder(dirname(deletedPath));
+          setOpenedFolder(RecordPath.dirname(deletedPath));
           break;
         }
       }

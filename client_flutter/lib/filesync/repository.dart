@@ -282,7 +282,7 @@ class Repository {
       await guestDb.close();
     }
     // Move attachment files (uuid-named, collisions mean same content → drop source)
-    const subDirs = ['base_files', 'work_files', 'recycler'];
+    const subDirs = [FileStore.baseFilesDirName, FileStore.workFilesDirName, FileStore.recyclerFilesDirName];
     for (final sub in subDirs) {
       final src = Directory(join(guestDir.path, sub));
       if (!src.existsSync()) continue;
@@ -295,6 +295,27 @@ class Repository {
           await f.delete();
         } else {
           await f.rename(target.path);
+        }
+      }
+    }
+    // Move assets: per-record dirs assets/{recordUuid}/{filename}
+    final guestAssets = Directory(join(guestDir.path, FileStore.assetsDirName));
+    if (guestAssets.existsSync()) {
+      await Directory(fileStore!.assetsDir).create(recursive: true);
+      await for (final uuidDir in guestAssets.list()) {
+        if (uuidDir is! Directory) continue;
+        final recordUuid = uuidDir.path.split(Platform.pathSeparator).last;
+        final dstDir = Directory(join(fileStore!.assetsDir, recordUuid));
+        await dstDir.create(recursive: true);
+        await for (final f in uuidDir.list()) {
+          if (f is! File) continue;
+          final fileName = f.path.split(Platform.pathSeparator).last;
+          final target = File(join(dstDir.path, fileName));
+          if (target.existsSync()) {
+            await f.delete();
+          } else {
+            await f.rename(target.path);
+          }
         }
       }
     }

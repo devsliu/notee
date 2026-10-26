@@ -320,7 +320,7 @@ class AppDatabase extends _$AppDatabase {
   /// Optional batchNo: mark this pull cycle, used for full cleanup.
   /// Optional version: needed to align baseline version during concurrent push edits.
   Future<int> updateRecordRemote(String uuid, RemoteRecord remote, {int? batchNo, int? version}) async {
-    final formattedPath = normalizePath(remote.path);
+    final formattedPath = RecordPath.normalizePath(remote.path);
     final remoteJson = jsonEncode({...remote.toJson(), 'path': formattedPath});
     return await updateRecord(
       uuid,

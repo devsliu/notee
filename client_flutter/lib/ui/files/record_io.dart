@@ -61,7 +61,7 @@ class DocumentImage {
   /// Collect bare filenames from every image node whose URL is a managed
   /// asset `assets/{uuid}/{filename}`.  The `assets/{uuid}/` prefix is
   /// stripped.  URLs pointing at http/https/ftp are skipped.
-  static List<String> collectAssetNames(Document document, String uuid) {
+  static List<String> collectAssetNames(Document document) {
     final names = <String>[];
     for (final node in collectImageNodes(document)) {
       final url = node.attributes[ImageBlockKeys.url] as String?;
@@ -410,7 +410,7 @@ class RecordExport {
   /// Start export: pick destination folder, then show a progress dialog
   /// exporting every record under [folderPath] (recursive).
   static Future<void> start(BuildContext context, String folderPath) async {
-    final root = normalizePath(folderPath);
+    final root = RecordPath.normalizePath(folderPath);
     final files = Repository.get().recordTree.sortedFiles.where((f) {
       String p = f.path;
       if (!p.endsWith('/')) p += '/';
@@ -420,7 +420,7 @@ class RecordExport {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.exportNoRecords)));
       return;
     }
-    await startWithFiles(context, files, dirname(root));
+    await startWithFiles(context, files, RecordPath.dirname(root));
   }
 
   /// Export a single record to markdown.
