@@ -251,7 +251,7 @@ class RecordImport {
         uuid: record.uuid,
       );
 
-      final writeContent = RecordSections.buildNoteContent(
+      final writeContent = RecordSections.buildRecordContent(
         assetNames, DocumentIO.documentToBody(document),
       );
       await fileStore.createWorkFile(record.uuid, writeContent);

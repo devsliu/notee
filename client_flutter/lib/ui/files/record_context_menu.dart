@@ -201,7 +201,7 @@ Future<void> _lockRecord(BuildContext context, TreeContentFile record, String pa
     }
     return;
   }
-  final newContent = RecordSections.buildNoteContent(assets, transformed);
+  final newContent = RecordSections.buildRecordContent(assets, transformed);
 
   // Save locked content to file
   try {

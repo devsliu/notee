@@ -390,7 +390,7 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
     } else {
       effLocked = 0;
     }
-    final writeContent = RecordSections.buildNoteContent(assetNames, effectiveBody);
+    final writeContent = RecordSections.buildRecordContent(assetNames, effectiveBody);
     // md5 is synchronous — compare before any await
     final md5 = Utils.generateMd5(writeContent);
     if (md5 == md5Ref.value) {

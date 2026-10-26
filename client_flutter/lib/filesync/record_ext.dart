@@ -93,17 +93,19 @@ class TagFormat {
 
 /// Section-kind strings for the file-level header `[[image:27,content:15234]]`.
 /// Called "kind" (not "tag") to avoid colliding with Record.tags.
-const String kImageSection = 'image';
-const String kContentSection = 'content';
+
 
 /// A single section described by the file-level header `[[kind:len,...]]`.
 /// [offset] is the absolute byte offset from the file start where this
 /// section's body begins; [len] is the UTF-8 byte count of the body.
-class NoteSection {
+class RecordSection {
+  static const String kImageSection = 'image';
+  static const String kContentSection = 'content';
+
   final String kind;
   final int offset;
   final int len;
-  const NoteSection(this.kind, this.offset, this.len);
+  const RecordSection(this.kind, this.offset, this.len);
 
   bool get isImage => kind == kImageSection;
   bool get isContent => kind == kContentSection;
@@ -112,7 +114,7 @@ class NoteSection {
 /// The result of peeking and parsing a file-level header: the ordered
 /// section table plus the byte offset right after the closing "]]".
 class HeaderParse {
-  final List<NoteSection> sections;
+  final List<RecordSection> sections;
   final int headerEnd;
   const HeaderParse(this.sections, this.headerEnd);
 }
@@ -179,10 +181,10 @@ class RecordSections {
       final headerStr = utf8.decode(peek.sublist(2, closeIdx - 1));
       final parsed = _parseHeader(headerStr);
       if (parsed.isEmpty) return null;
-      final sections = <NoteSection>[];
+      final sections = <RecordSection>[];
       int cur = headerEnd;
       for (final (kind, len) in parsed) {
-        sections.add(NoteSection(kind, cur, len));
+        sections.add(RecordSection(kind, cur, len));
         cur += len;
       }
       return HeaderParse(sections, headerEnd);
@@ -200,10 +202,10 @@ class RecordSections {
     final headerStr = utf8.decode(bytes.sublist(2, closeIdx - 1));
     final parsed = _parseHeader(headerStr);
     if (parsed.isEmpty) return null;
-    final sections = <NoteSection>[];
+    final sections = <RecordSection>[];
     int cur = headerEnd;
     for (final (kind, len) in parsed) {
-      sections.add(NoteSection(kind, cur, len));
+      sections.add(RecordSection(kind, cur, len));
       cur += len;
     }
     return HeaderParse(sections, headerEnd);
@@ -247,45 +249,6 @@ class RecordSections {
       }
     }
     return const <String>[];
-  }
-
-  /// Split a record file on disk into `(assets, body)` using the file-level header.
-  /// Falls back to the legacy first-line-JSON-array format, then plain body.
-  static (List<String> assets, String body) splitNoteContentFromPath(String filePath) {
-    final bytes = _readFileBytes(filePath);
-    if (bytes.isEmpty) return (const <String>[], '');
-
-    final peek = _peekHeaderFile(filePath);
-    if (peek != null) {
-      List<String> assets = const <String>[];
-      String body = '';
-      for (final s in peek.sections) {
-        if (s.isImage && s.len > 0 && s.offset + s.len <= bytes.length) {
-          assets = _parseAssetJson(utf8.decode(bytes.sublist(s.offset, s.offset + s.len)));
-        } else if (s.isContent && s.offset < bytes.length) {
-          // Content is always the last section — take everything from offset
-          // to EOF, even if the declared len is beyond the file (truncated
-          // or tampered file).  Better to return partial body than none.
-          body = utf8.decode(bytes.sublist(s.offset), allowMalformed: true);
-        }
-      }
-      return (assets, body);
-    }
-
-    // Legacy / plain: decode as String and handle first-line JSON-array fallback.
-    final content = utf8.decode(bytes, allowMalformed: true);
-    final idx = content.indexOf('\n');
-    if (idx < 0) return (const <String>[], content);
-    final firstLine = content.substring(0, idx);
-    if (firstLine.trimLeft().startsWith('[')) {
-      try {
-        final list = jsonDecode(firstLine) as List;
-        return (list.map((e) => e.toString()).toList(), content.substring(idx + 1));
-      } catch (_) {
-        return (const <String>[], content);
-      }
-    }
-    return (const <String>[], content);
   }
 
   // ==========================================================================
@@ -336,12 +299,13 @@ class RecordSections {
 
   /// Build file content. All section lengths are UTF-8 byte counts (cross-language safe).
   /// When [assets] is empty, returns [body] verbatim — no header written.
-  static String buildNoteContent(List<String> assets, String body) {
+  static String buildRecordContent(List<String> assets, String body) {
     if (assets.isEmpty) return body;
     final assetJson = jsonEncode(assets);
     final assetBytes = utf8.encode(assetJson);
     final bodyBytes = utf8.encode(body);
-    final header = '[[$kImageSection:${assetBytes.length},$kContentSection:${bodyBytes.length}]]';
+    final header =
+        '[[${RecordSection.kImageSection}:${assetBytes.length},${RecordSection.kContentSection}:${bodyBytes.length}]]';
     final allBytes = <int>[...utf8.encode(header), ...assetBytes, ...bodyBytes];
     return utf8.decode(allBytes);
   }
