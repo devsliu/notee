@@ -293,7 +293,7 @@ class RecordImport {
 
   static bool _isLocalDocLink(String href) {
     if (href.isEmpty || isRemoteUrl(href)) return false;
-    if (href.startsWith(recordLinkPrefix)) return false;
+    if (extractRecordUuid(href) != null) return false;
     final split = _splitHref(href);
     if (split == null) return false;
     final lower = split.$1.toLowerCase();
@@ -316,6 +316,17 @@ class RecordImport {
     final name = '${base}_$i$ext';
     taken.add(name);
     return name;
+  }
+
+  /// Join a parent folder path with a relative child directory.
+  /// When [relDir] is '.' or empty, returns [parent] verbatim.
+  /// Otherwise normalizes separators, ensures `/` between, and guarantees a trailing `/`.
+  static String _joinFolder(String parent, String relDir) {
+    if (relDir == '.' || relDir.isEmpty) return parent;
+    final normalized = relDir.replaceAll('\\', '/');
+    final sep = parent.endsWith('/') ? '' : '/';
+    final joined = '$parent$sep$normalized';
+    return joined.endsWith('/') ? joined : '$joined/';
   }
 
   /// Preprocess seed files for import.
@@ -382,14 +393,7 @@ class RecordImport {
           linkedFolder = seedEntry.$1;
         } else {
           final relPath = p.relative(linkedAbs, from: baseDir);
-          final relDir = p.dirname(relPath);
-          if (relDir != '.' && relDir.isNotEmpty) {
-            final normalized = relDir.replaceAll('\\', '/');
-            linkedFolder = item.noteeFolder + (item.noteeFolder.endsWith('/') ? '' : '/') + normalized;
-            if (!linkedFolder.endsWith('/')) linkedFolder += '/';
-          } else {
-            linkedFolder = item.noteeFolder;
-          }
+          linkedFolder = _joinFolder(item.noteeFolder, p.dirname(relPath));
         }
         enqueue(linkedAbs, linkedFolder, baseDir);
       }
@@ -628,15 +632,7 @@ class RecordImport {
     final seeds = <String, (String, String)>{};
     for (final file in mdFiles) {
       final relPath = p.relative(file.path, from: rootDir.path);
-      final relDir = p.dirname(relPath);
-
-      String noteeFolder = targetRoot;
-      if (relDir != '.' && relDir.isNotEmpty) {
-        final normalized = relDir.replaceAll('\\', '/');
-        noteeFolder = targetRoot + (targetRoot.endsWith('/') ? '' : '/') + normalized;
-        if (!noteeFolder.endsWith('/')) noteeFolder += '/';
-      }
-
+      final noteeFolder = _joinFolder(targetRoot, p.dirname(relPath));
       seeds[file.path] = (noteeFolder, rootDir.path);
     }
 
@@ -971,8 +967,8 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
   /// the target record's exported .md file.  Returns null for non-record
   /// links or when the target uuid isn't part of this export batch.
   String? _rewriteRecordLink(String href, String fromDir) {
-    if (!href.startsWith(recordLinkPrefix)) return null;
-    final targetUuid = href.substring(recordLinkPrefix.length);
+    final targetUuid = extractRecordUuid(href);
+    if (targetUuid == null) return null;
     final targetMdPath = _uuidToMdPath[targetUuid];
     if (targetMdPath == null) return null;
     return p.relative(targetMdPath, from: fromDir).replaceAll('\\', '/');

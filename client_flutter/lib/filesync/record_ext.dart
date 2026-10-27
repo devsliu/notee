@@ -380,4 +380,11 @@ String? extractAssetFilename(String url) {
   return url.startsWith(assetUrlPrefix) ? url.substring(assetUrlPrefix.length) : null;
 }
 
+/// Extract uuid from a `record://<uuid>` href.
+/// Returns null when [href] isn't a record link.
+String? extractRecordUuid(String href) {
+  if (!href.startsWith(recordLinkPrefix)) return null;
+  return href.substring(recordLinkPrefix.length);
+}
+
 // ============================================================================

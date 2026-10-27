@@ -88,8 +88,8 @@ TextSpan _recordLinkAwareDecorator(
   TextSpan after,
 ) {
   final href = text.attributes?[AppFlowyRichTextKeys.href] as String?;
-  if (href != null && href.startsWith(recordLinkPrefix)) {
-    final uuid = href.substring(recordLinkPrefix.length);
+  final uuid = href != null ? extractRecordUuid(href) : null;
+  if (uuid != null) {
     final recognizer = TapGestureRecognizer()
       ..onTap = () => AppNavigator.of(context).navigate('${AppNavigator.uriRecord}$uuid');
     return before.copyWith(recognizer: recognizer);
