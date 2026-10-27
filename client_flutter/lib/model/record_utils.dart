@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:intl/intl.dart';
 import 'package:notee/config/language_manager.dart';
+import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/utils/app_logger.dart';
 
 class RecordUtils {
@@ -69,7 +70,8 @@ class RecordUtils {
   static String? extractTextFromFile(String path) {
     try {
       final raw = File(path).readAsStringSync();
-      final trimmed = raw.trim();
+      final (_, content) = RecordSections.splitContent(raw);
+      final trimmed = content.trim();
       if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
         try {
           final map = jsonDecode(trimmed) as Map<String, dynamic>;

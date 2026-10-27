@@ -243,7 +243,12 @@ class _DesktopAppState extends BaseAppState<DesktopApp> {
         AppEnv.prefs.setDouble(PrefKeys.windowLeftWidth, w);
       },
       leftChild: RecordListPage(),
-      rightChild: ScaffoldMessenger(child: DesktopTabsPage(key: detailKey)),
+      rightChild: ScaffoldMessenger(
+        child: Scaffold(
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          body: DesktopTabsPage(key: detailKey),
+        ),
+      ),
     );
   }
 }

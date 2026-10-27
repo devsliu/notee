@@ -824,6 +824,72 @@ abstract class AppLocalizations {
   /// **'操作日志'**
   String get operates;
 
+  /// No description provided for @tombstoneManager.
+  ///
+  /// In zh, this message translates to:
+  /// **'回收站清理'**
+  String get tombstoneManager;
+
+  /// No description provided for @tombstoneManagerDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'清理服务端软删除笔记和孤立附件'**
+  String get tombstoneManagerDesc;
+
+  /// No description provided for @tombstoneTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'回收站统计'**
+  String get tombstoneTitle;
+
+  /// No description provided for @tombstoneTotalRecords.
+  ///
+  /// In zh, this message translates to:
+  /// **'活跃记录'**
+  String get tombstoneTotalRecords;
+
+  /// No description provided for @tombstoneDeletedRecords.
+  ///
+  /// In zh, this message translates to:
+  /// **'软删除记录'**
+  String get tombstoneDeletedRecords;
+
+  /// No description provided for @tombstoneDeletedAssets.
+  ///
+  /// In zh, this message translates to:
+  /// **'孤立附件'**
+  String get tombstoneDeletedAssets;
+
+  /// No description provided for @tombstoneMaxVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'全表最大版本'**
+  String get tombstoneMaxVersion;
+
+  /// No description provided for @tombstonePurgedVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'墓碑版本号'**
+  String get tombstonePurgedVersion;
+
+  /// No description provided for @tombstonePurge.
+  ///
+  /// In zh, this message translates to:
+  /// **'立即清理'**
+  String get tombstonePurge;
+
+  /// No description provided for @tombstonePurgeConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'将永久删除 {count} 条软删除笔记和所有孤立附件，操作不可恢复。'**
+  String tombstonePurgeConfirm(Object count);
+
+  /// No description provided for @tombstonePurgeDone.
+  ///
+  /// In zh, this message translates to:
+  /// **'已清理 {count} 条笔记和 {assets} 个孤立附件'**
+  String tombstonePurgeDone(Object assets, Object count);
+
   /// No description provided for @emptyInputCheck.
   ///
   /// In zh, this message translates to:
@@ -847,6 +913,42 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'笔记导入失败'**
   String get importFailed;
+
+  /// No description provided for @importFolder.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入文件夹'**
+  String get importFolder;
+
+  /// No description provided for @importNoFiles.
+  ///
+  /// In zh, this message translates to:
+  /// **'未找到 .md 或 .txt 文件'**
+  String get importNoFiles;
+
+  /// No description provided for @importCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入完成：成功 {imported} 个，跳过 {skipped} 个'**
+  String importCompleted(Object imported, Object skipped);
+
+  /// No description provided for @importDiscovering.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在发现关联文档...'**
+  String get importDiscovering;
+
+  /// No description provided for @importingProgress.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在导入 ({done}/{total})'**
+  String importingProgress(int done, int total);
+
+  /// No description provided for @cancelled.
+  ///
+  /// In zh, this message translates to:
+  /// **'已取消'**
+  String get cancelled;
 
   /// No description provided for @collapseAll.
   ///

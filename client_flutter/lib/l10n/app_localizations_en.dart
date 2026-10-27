@@ -398,6 +398,44 @@ class AppLocalizationsEn extends AppLocalizations {
   String get operates => 'Logs';
 
   @override
+  String get tombstoneManager => 'Recycle Bin Cleanup';
+
+  @override
+  String get tombstoneManagerDesc =>
+      'Purge soft-deleted records and orphaned assets';
+
+  @override
+  String get tombstoneTitle => 'Recycle Bin Statistics';
+
+  @override
+  String get tombstoneTotalRecords => 'Active records';
+
+  @override
+  String get tombstoneDeletedRecords => 'Soft-deleted records';
+
+  @override
+  String get tombstoneDeletedAssets => 'Orphaned assets';
+
+  @override
+  String get tombstoneMaxVersion => 'Max tombstone version';
+
+  @override
+  String get tombstonePurgedVersion => 'Purged version';
+
+  @override
+  String get tombstonePurge => 'Purge Now';
+
+  @override
+  String tombstonePurgeConfirm(Object count) {
+    return 'Permanently delete $count soft-deleted records and all orphaned assets? This action cannot be undone.';
+  }
+
+  @override
+  String tombstonePurgeDone(Object assets, Object count) {
+    return 'Purged $count records and $assets orphaned assets';
+  }
+
+  @override
   String emptyInputCheck(Object input) {
     return 'Please input $input';
   }
@@ -406,10 +444,32 @@ class AppLocalizationsEn extends AppLocalizations {
   String get importDocument => 'Import Documents';
 
   @override
-  String get importSuccess => 'Import Note Success';
+  String get importSuccess => 'Import record success';
 
   @override
-  String get importFailed => 'Import Note Failed';
+  String get importFailed => 'Import record failed';
+
+  @override
+  String get importFolder => 'Import Folder';
+
+  @override
+  String get importNoFiles => 'No .md or .txt files found';
+
+  @override
+  String importCompleted(Object imported, Object skipped) {
+    return 'Import done: $imported imported, $skipped skipped';
+  }
+
+  @override
+  String get importDiscovering => 'Discovering linked documents...';
+
+  @override
+  String importingProgress(int done, int total) {
+    return 'Importing ($done/$total)';
+  }
+
+  @override
+  String get cancelled => 'Cancelled';
 
   @override
   String get collapseAll => 'Collapse All Folders';

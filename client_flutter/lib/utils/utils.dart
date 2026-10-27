@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/filesync/reminder_tree.dart';
+import 'package:path/path.dart';
 import 'package:pointycastle/api.dart';
 import 'package:pointycastle/key_derivators/api.dart';
 import 'package:pointycastle/key_derivators/pbkdf2.dart';
@@ -15,8 +16,114 @@ typedef ReturnCallback<T> = T Function();
 typedef ValueCallback<T> = void Function(T value);
 typedef ValueCallback2<T, T1> = void Function(T value, T1 t1);
 
-/// Pure utility methods, independent of app-specific business logic.
+/// Conflict resolution when a destination file already exists during [Utils.moveFolder].
+enum MoveConflictPolicy {
+  /// Delete the destination, then move the source in place.
+  overwrite,
+
+  /// Keep the destination and delete the source.
+  skip,
+}
+
 class Utils {
+  /// Atomically write to [target] by first writing to a `.creating` temp file in
+  /// the same directory, then swapping it into place via rename. On Windows
+  /// rename does not overwrite, so the existing target is first moved to `.bak`
+  /// and restored on failure — this guarantees the caller never observes a
+  /// missing/corrupt file even if the process is interrupted mid-write.
+  ///
+  /// [writeToTemp] receives the temp file and is responsible for producing its
+  /// content (writeAsBytes, writeAsString, stream.pipe, etc.). The temp file is
+  /// created before [writeToTemp] is invoked; cleanup is handled here.
+  static Future<void> atomicWriteFile(
+    File target,
+    Future<void> Function(File tmp) writeToTemp, {
+    void Function(Object error)? onBackupFailed,
+  }) async {
+    final tmp = File('${target.path}.creating');
+    final bak = File('${target.path}.bak');
+    await tmp.create(recursive: true);
+    try {
+      await writeToTemp(tmp);
+    } catch (_) {
+      await tmp.delete().catchError((_) {});
+      rethrow;
+    }
+
+    if (await target.exists()) {
+      try {
+        await target.rename(bak.path);
+      } catch (e) {
+        // Old file cannot be moved (locked/permission). Best-effort direct delete.
+        try {
+          await target.delete();
+        } catch (_) {
+          if (onBackupFailed != null) onBackupFailed(e);
+        }
+      }
+    }
+
+    try {
+      await tmp.rename(target.path);
+    } catch (e) {
+      // Rename failed — restore .bak so the user still has the previous version.
+      if (!await target.exists() && await bak.exists()) {
+        try {
+          await bak.rename(target.path);
+        } catch (restoreErr) {
+          if (onBackupFailed != null) onBackupFailed(restoreErr);
+        }
+      }
+      await tmp.delete().catchError((_) {});
+      rethrow;
+    }
+
+    if (await bak.exists()) {
+      await bak.delete().catchError((_) {});
+    }
+  }
+
+  /// Move [src] to [dst]. On Windows rename does not overwrite, so the target
+  /// is deleted first; cross-filesystem rename failures fall back to copy+delete.
+  static void moveFile(File src, File dst) {
+    try {
+      if (dst.existsSync()) {
+        dst.deleteSync();
+      }
+      src.renameSync(dst.absolute.path);
+    } on FileSystemException {
+      src.copySync(dst.absolute.path);
+      src.deleteSync();
+    }
+  }
+
+  /// Recursively move every entry from [src] into [dst].
+  ///
+  /// - Destination directories are always created and merged — [policy] does not
+  ///   apply to directories.
+  /// - File collisions are resolved according to [policy].
+  static Future<void> moveFolder(Directory src, Directory dst, MoveConflictPolicy policy) async {
+    if (!await src.exists()) return;
+    await dst.create(recursive: true);
+    await for (final entity in src.list()) {
+      final name = entity.path.split(Platform.pathSeparator).last;
+      if (entity is File) {
+        final target = File(join(dst.path, name));
+        if (await target.exists()) {
+          if (policy == MoveConflictPolicy.overwrite) {
+            moveFile(entity, target);
+          } else {
+            await entity.delete();
+          }
+        } else {
+          moveFile(entity, target);
+        }
+      } else if (entity is Directory) {
+        await moveFolder(entity, Directory(join(dst.path, name)), policy);
+      }
+    }
+  }
+
   /// Open a URL using the system default handler (e.g., browser)
   static Future<void> openUrlWithSystem(String url) async {
     if (Platform.isWindows) {

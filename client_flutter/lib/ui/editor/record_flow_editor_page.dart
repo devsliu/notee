@@ -2,14 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:appflowy_editor/appflowy_editor.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:notee/filesync/file_store.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/filesync/reminder_tree.dart';
+import 'package:notee/ui/base_app.dart';
 import 'package:notee/ui/calendar/reminder_task_editor.dart';
 import 'package:notee/model/record_utils.dart';
 import 'package:notee/ui/editor/flow_editor/flow_fixed_toolbar.dart';
 import 'package:notee/ui/editor/base_record_edit_page.dart';
+import 'package:notee/ui/files/record_io.dart';
+import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/ui/editor/flow_editor/flow_context_menu.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/config/language_manager.dart';
@@ -18,12 +23,16 @@ import 'package:notee/ui/editor/flow_editor/code_block_component.dart';
 import 'package:notee/ui/editor/flow_editor/code_block_toolbar_item.dart';
 import 'package:notee/ui/editor/flow_editor/code_block_newline.dart';
 import 'package:notee/ui/editor/flow_editor/find_replace_bar.dart';
+import 'package:notee/ui/editor/notee_image_block.dart';
 import 'package:notee/ui/editor/record_outline_panel.dart';
 import 'package:notee/ui/editor/record_info_dialog.dart';
 import 'package:notee/ui/editor/share_record_dialog.dart';
 import 'package:notee/ui/editor/record_modify_time_bar.dart';
 import 'package:notee/ui/editor/record_reminder_bar.dart';
 import 'package:notee/ui/editor/record_tags_bar.dart';
+import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
+
 
 /// Shared text style configuration (edit page + diff page).
 TextStyleConfiguration buildEditorTextStyle(ThemeData theme) {
@@ -37,9 +46,17 @@ TextStyleConfiguration buildEditorTextStyle(ThemeData theme) {
 }
 
 /// Shared block component builders — paragraph padding zeroed, todo with custom icon, code block.
-Map<String, BlockComponentBuilder> buildEditorBlockBuilders(ThemeData theme) {
+Map<String, BlockComponentBuilder> buildEditorBlockBuilders(
+  ThemeData theme, {
+  required String recordUuid,
+  required FileStore fileStore,
+}) {
   return <String, BlockComponentBuilder>{
     ...standardBlockComponentBuilderMap,
+    ImageBlockKeys.type: NoteeImageBlockBuilder(
+      fileStore: fileStore,
+      srcResolver: (src) => fileStore.resolveRecordAsset(src, recordUuid),
+    ),
     TodoListBlockKeys.type: TodoListBlockComponentBuilder(
       configuration: standardBlockComponentConfiguration.copyWith(
         placeholderText: (_) => AppFlowyEditorL10n.current.toDoPlaceholder,
@@ -59,6 +76,29 @@ Map<String, BlockComponentBuilder> buildEditorBlockBuilders(ThemeData theme) {
   };
 }
 
+/// Custom text span decorator that intercepts `record://<uuid>` links and
+/// navigates to the corresponding note; all other hrefs fall through to the
+/// platform default decorator (which opens external URLs).
+TextSpan _recordLinkAwareDecorator(
+  BuildContext context,
+  Node node,
+  int index,
+  TextInsert text,
+  TextSpan before,
+  TextSpan after,
+) {
+  final href = text.attributes?[AppFlowyRichTextKeys.href] as String?;
+  final uuid = href != null ? extractRecordUuid(href) : null;
+  if (uuid != null) {
+    final recognizer = TapGestureRecognizer()
+      ..onTap = () => AppNavigator.of(context).navigate('${AppNavigator.uriRecord}$uuid');
+    return before.copyWith(recognizer: recognizer);
+  }
+  return Utils.isDesktop()
+      ? defaultTextSpanDecoratorForAttribute(context, node, index, text, before, after)
+      : mobileTextSpanDecoratorForAttribute(context, node, index, text, before, after);
+}
+
 /// Shared editor style (desktop/mobile switch + dark-mode-aware selection color).
 EditorStyle buildEditorStyle(ThemeData theme, TextStyleConfiguration textStyleConfiguration) {
   final isDesktop = Utils.isDesktop();
@@ -72,12 +112,14 @@ EditorStyle buildEditorStyle(ThemeData theme, TextStyleConfiguration textStyleCo
           cursorColor: theme.colorScheme.primary,
           selectionColor: selectionColor,
           textStyleConfiguration: textStyleConfiguration,
+          textSpanDecorator: _recordLinkAwareDecorator,
         )
       : EditorStyle.mobile(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           cursorColor: theme.colorScheme.primary,
           selectionColor: selectionColor,
           textStyleConfiguration: textStyleConfiguration,
+          textSpanDecorator: _recordLinkAwareDecorator,
         );
 }
 
@@ -242,7 +284,8 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
   void _rebuildStyleCache() {
     final theme = Theme.of(context);
     _textStyleConfiguration = buildEditorTextStyle(theme);
-    _blockComponentBuilders = buildEditorBlockBuilders(theme);
+    final fileStore = Repository.get().fileStore;
+    _blockComponentBuilders = buildEditorBlockBuilders(theme, recordUuid: mRecord.uuid, fileStore: fileStore!);
   }
 
   @override
@@ -264,7 +307,18 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     ...markdownFormatItems,
     ...headingItems,
     linkItem,
+    buildImageToolbarItem(buildAsset: _buildAsset),
   ];
+
+  /// Returns pre-assembled (destPath, insertUrl) for an image source path.
+  /// Network URLs or missing fileStore fall back to src itself for both.
+  ({String destPath, String insertUrl}) _buildAsset(String src) {
+    final fs = Repository.get().fileStore;
+    if (isRemoteUrl(src) || fs == null) return (destPath: src, insertUrl: src);
+    final ext = p.extension(src);
+    final filename = '${const Uuid().v4()}${ext.isEmpty ? '.png' : ext}';
+    return (destPath: fs.getAssetPath(mRecord.uuid, filename), insertUrl: buildAssetUrl(filename));
+  }
 
   Future<void> _addReminder() async {
     final task = ReminderTask(id: DateTime.now().millisecondsSinceEpoch.toString(), name: '');
@@ -436,14 +490,18 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
   }
 
   @override
-  (String content, String name) formatContent() {
+  (String content, String name, List<String> assetNames) formatContent() {
     final docJson = editorState.document.toJson();
     final String jsonString = jsonEncode(docJson);
     String name = RecordUtils.getDocumentTitle(editorState.document);
     if (name.isEmpty) {
       name = RecordUtils.generateRecordName();
     }
-    return (jsonString, name);
+    // Collect asset filenames referenced by image nodes (relative
+    // assets/{recordUuid}/{filename} → strip prefix to {filename}).
+    final assetNames = DocumentImage.collectAssetNames(editorState.document);
+    final content = jsonString; // body only; assetNames passed separately to saveWorkFile
+    return (content, name, assetNames);
   }
 
   /// 统一的大纲面板外形：240 宽 + 圆角 4 + 边框。

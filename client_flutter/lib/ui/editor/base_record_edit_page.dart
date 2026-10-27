@@ -261,6 +261,10 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
       }
     }
 
+    // Extract the body from the tagged note file (asset section is never encrypted).
+    final (_, body) = RecordSections.splitContent(content);
+    content = body;
+
     // If record is locked, unlock via UnlockContentWidget (password input + errors inside widget)
     if (entry.local.locked == 1 && content.isNotEmpty) {
       // Try saved password first (auto re-unlock after remote refresh)
@@ -286,7 +290,15 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
     setStateMode(PageState.modeNormal, content);
   }
 
-  (String content, String name) formatContent();
+  (String content, String name, List<String> assetNames) formatContent();
+
+  /// File-level header: [[tag1:len1,tag2:len2,...]]
+  /// - All section headers are collected here at the top of the file.
+  /// - The length after each tag is the section's UTF-8 byte length.
+  /// - Sections immediately follow "]]" in the order tags appear in the header.
+  // ================================================================
+  //  File-level header parsing (moved to record_ext.dart)
+  // ================================================================
 
   /// Save edit. Returns the Future tracking this save (or the in-flight one if coalesced).
   /// Coalesce strategy: if a save is already running AND new edits arrived, it chains a
@@ -310,7 +322,7 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
       return _saveFuture;
     }
 
-    var (String content, String name) = formatContent();
+    var (content, name, assetNames) = formatContent();
 
     if (name.isEmpty) {
       name = RecordUtils.generateRecordName();
@@ -325,15 +337,18 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
               uuid: mRecord.uuid,
               path: mRecord.local.path,
               name: name,
-              content: content,
+              body: content,
+              assetNames: assetNames,
               locked: mRecord.local.locked,
               password: _password,
               md5Ref: _contentMd5,
             )
+            .then((_) {
+              // Prune asset files that are no longer referenced by any image node.
+              Repository.get().fileStore?.pruneAssetsKeepOnly(mRecord.uuid, assetNames.toSet());
+            })
             .catchError((e) {
               AppLogger.e('Editor', "[BaseEditPage] save failed: $e");
-              // 保存失败必须恢复 dirty 标记: 否则 md5 缓存未污染但 isContentChanged 已清,
-              // 本次编辑不会再有任何重试入口, 后续树事件还会用磁盘旧内容重载编辑器
               isContentChanged = true;
             })
             .whenComplete(() {
@@ -344,14 +359,16 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
     return chain;
   }
 
-  /// Write content to work file + update DB metadata. Handles post-encryption md5.
+  /// Write [body] + [assetNames] to work file (with header built here), update
+  /// DB metadata.  Handles encryption of body (asset section is NEVER encrypted).
   /// Compares computed md5 against [md5Ref.value] — if equal (no change), skips write.
   /// Otherwise updates [md5Ref.value] with the new md5 so caller stays in sync.
   static Future<void> saveWorkFile({
     required String uuid,
     required String path,
     required String name,
-    required String content,
+    required String body,
+    required List<String> assetNames,
     required ObjectRef<String> md5Ref,
     int locked = 0,
     String? password,
@@ -362,17 +379,18 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
       return;
     }
     int effLocked = locked;
-    String? writeContent = content;
+    String effectiveBody = body;
     if (password != null) {
-      final enc = Utils.encryptContent(content, password);
+      final enc = Utils.encryptContent(body, password);
       if (enc != null) {
-        writeContent = enc;
+        effectiveBody = enc;
       } else {
         effLocked = 0;
       }
     } else {
       effLocked = 0;
     }
+    final writeContent = RecordSections.buildRecordContent(assetNames, effectiveBody);
     // md5 is synchronous — compare before any await
     final md5 = Utils.generateMd5(writeContent);
     if (md5 == md5Ref.value) {

@@ -15,7 +15,9 @@ import 'package:notee/filesync/sync_engine.dart' show SyncEngine, SyncState;
 import 'package:notee/filesync/user.dart';
 import 'package:notee/filesync/http_api.dart';
 import 'package:notee/utils/app_logger.dart';
+import 'package:notee/utils/utils.dart';
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 /// Per-user resource bundle: owns the DB, FileStore, SearchIndex, SyncEngine
@@ -71,6 +73,7 @@ class _UserResource {
     final expired = await db!.purgeRecycleRecordsBefore(threshold);
     for (final row in expired) {
       fileStore?.deleteRecyclerFile(row.uuid);
+      fileStore?.deleteAssetsDir(row.uuid);
     }
     if (expired.isNotEmpty) {
       AppLogger.w('Repository', "auto-purged ${expired.length} expired recycler entries (>30d)");
@@ -84,7 +87,8 @@ class _UserResource {
       final dir = user.dirAbsPath;
       AppLogger.i('Repository', "_UserResource.open dir=$dir");
 
-      fileStore = FileStore(dir);
+      final cacheDir = (await getApplicationCacheDirectory()).path;
+      fileStore = FileStore(dir, cacheDir);
       db = createRecordsDatabase(File(join(dir, 'records0.db')));
       fileStore!.db = db!;
 
@@ -279,21 +283,18 @@ class Repository {
       await guestDb.close();
     }
     // Move attachment files (uuid-named, collisions mean same content → drop source)
-    const subDirs = ['base_files', 'work_files', 'recycler'];
+    const subDirs = [
+      FileStore.baseFilesDirName,
+      FileStore.workFilesDirName,
+      FileStore.recyclerFilesDirName,
+      FileStore.assetsDirName,
+    ];
     for (final sub in subDirs) {
-      final src = Directory(join(guestDir.path, sub));
-      if (!src.existsSync()) continue;
-      final dst = join(fileStore!.rootDir, sub);
-      await for (final f in src.list()) {
-        if (f is! File) continue;
-        final fileName = f.path.split(Platform.pathSeparator).last;
-        final target = File(join(dst, fileName));
-        if (target.existsSync()) {
-          await f.delete();
-        } else {
-          await f.rename(target.path);
-        }
-      }
+      await Utils.moveFolder(
+        Directory(join(guestDir.path, sub)),
+        Directory(join(fileStore!.rootDir, sub)),
+        MoveConflictPolicy.skip,
+      );
     }
     try {
       await guestDir.delete(recursive: true);
@@ -317,14 +318,15 @@ class Repository {
     String name,
     bool sync,
     int fileEditAt, {
+    String? uuid,
     String? reminder,
     String? tags,
   }) async {
     if (db == null || fileStore == null) return null;
     int time = DateTime.now().millisecondsSinceEpoch;
-    final uuid = Uuid().v4();
+    final recordUuid = uuid ?? Uuid().v4();
     await db!.insertRecord(
-      uuid: uuid,
+      uuid: recordUuid,
       name: name,
       path: path,
       fileEditAt: fileEditAt,
@@ -334,10 +336,10 @@ class Repository {
       reminder: reminder,
       tags: tags,
     );
-    final record = (await db!.getRecord(uuid))!;
+    final record = (await db!.getRecord(recordUuid))!;
     await recordTree.insertRecord(record);
-    AppLogger.i('Repository', "create record $uuid ${record.local.path}${record.local.name}");
-    fileStore!.deleteWorkFile(uuid);
+    AppLogger.i('Repository', "create record $recordUuid ${record.local.path}${record.local.name}");
+    fileStore!.deleteWorkFile(recordUuid);
     if (sync) await syncRecords(false);
     return record;
   }
@@ -449,6 +451,7 @@ class Repository {
     )..where((t) => t.uuid.equals(uuid) & t.remoteVersion.equals(0))).go();
     if (rows == 0) return;
     fileStore?.deleteWorkFile(uuid);
+    fileStore?.deleteAssetsDir(uuid);
     await recordTree.deleteRecord(uuid);
     AppLogger.w('Repository', "purge unsynced record $uuid (local creation rolled back)");
   }
@@ -562,8 +565,16 @@ class Repository {
     if (record == null || !record.local.syncConflict) return;
 
     if (keepLocal) {
-      // Only align baseline version, keep all local edits
+      // Only align baseline version, keep all local edits.
+      //
+      // CRITICAL: clear .1 "already uploaded" markers. The remote side may have
+      // changed since our baseline (e.g. the other party edited away an image,
+      // and cleanupOrphanAssets deleted it from server). KeepLocal means our
+      // local content's asset list wins, and every image on that list must be
+      // re-uploaded on the next push — stale .1 markers would silently skip
+      // the upload and orphan images on the server forever.
       await db.updateRecord(uuid, version: record.local.remoteVersion);
+      fileStore.deleteAssetMarkers(uuid);
       final refreshed = await db.getRecord(uuid);
       if (refreshed != null) await recordTree.insertRecord(refreshed);
       AppLogger.i(
@@ -571,9 +582,23 @@ class Repository {
         "resolveConflict keepLocal uuid=$uuid align baseline to v${record.local.remoteVersion}",
       );
     } else {
-      // Discard local edits, fully overwrite with remote (same behavior as normal push success markSynced)
+      // Discard local edits, fully overwrite with remote.
+      //
+      // Asset handling: the remote base file (downloaded by _applyEditConflict
+      // earlier in the conflict flow) is already on disk. Parse its asset
+      // header and prune local assets to that set — images referenced by
+      // BOTH sides are kept (no redundant download later), only local
+      // additions that did not make it to the server are removed.
       await db.markSynced(uuid);
       fileStore.deleteWorkFile(uuid);
+      try {
+        final basePath = fileStore.getBaseFile(uuid);
+        final remoteAssets = RecordSections.extractAssetNamesFromPath(basePath).toSet();
+        fileStore.pruneAssetsKeepOnly(uuid, remoteAssets);
+      } catch (e) {
+        AppLogger.e('Repository', "resolveConflict keepRemote uuid=$uuid asset prune failed: $e");
+        // Prune failure is non-fatal — leave assets as-is, user can re-sync
+      }
       final refreshed = await db.getRecord(uuid);
       if (refreshed != null) await recordTree.insertRecord(refreshed);
       AppLogger.w('Repository', "resolveConflict keepRemote uuid=$uuid overwritten, remoteV=${record.remote.version}");
@@ -668,6 +693,7 @@ class Repository {
     try {
       await db.transaction(() async {
         for (final entry in okEntries) {
+          final hasFile = fileStore.isWorkFileExist(entry.uuid);
           await db.restoreRecord(
             uuid: entry.uuid,
             name: entry.name,
@@ -675,8 +701,9 @@ class Repository {
             locked: entry.locked,
             reminder: entry.reminder,
             tags: entry.tags,
-            fileEditAt: fileStore.isWorkFileExist(entry.uuid) ? time : 0,
-            fileDirty: fileStore.isWorkFileExist(entry.uuid) ? 1 : 0,
+            fileEditAt: hasFile ? time : 0,
+            fileDirty: hasFile ? 1 : 0,
+            baseFileVersion: 0,
             editAt: time,
             createAt: time,
           );
@@ -707,6 +734,7 @@ class Repository {
     if (db == null) return;
     await db.deleteRecycleRecord(uuid);
     fileStore?.deleteRecyclerFile(uuid);
+    fileStore?.deleteAssetsDir(uuid);
     AppLogger.w('Repository', "purge recycler record $uuid");
   }
 
@@ -718,6 +746,7 @@ class Repository {
     await db.deleteRecycleRecordsByGroup(groupId);
     for (final e in groupEntries) {
       fileStore?.deleteRecyclerFile(e.uuid);
+      fileStore?.deleteAssetsDir(e.uuid);
     }
     AppLogger.w('Repository', "purge folder recycler group $groupId, count:${groupEntries.length}");
   }
@@ -730,6 +759,7 @@ class Repository {
     await db.clearRecycleRecords();
     for (final row in rows) {
       fileStore?.deleteRecyclerFile(row.uuid);
+      fileStore?.deleteAssetsDir(row.uuid);
     }
     AppLogger.w('Repository', "clear recycler records, count:${rows.length}");
   }

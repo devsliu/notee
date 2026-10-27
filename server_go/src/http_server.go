@@ -215,7 +215,7 @@ func getFormInt64Opt(r *http.Request, key string) (int64, bool, error) {
 // authAndStatWrapper unifies method validation, login validation, API statistics, and passes userId/token
 func (s *Server) authAndStatWrapper(apiName string, method string, handler func(http.ResponseWriter, *http.Request, *CacheUser, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != method {
+		if method != "" && r.Method != method {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -266,6 +266,11 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/record/list", s.authAndStatWrapper("queryRecords", http.MethodGet, s.queryRecordsHandler))
 	mux.HandleFunc("/record/download", s.authAndStatWrapper("downloadRecord", http.MethodGet, s.downloadRecordFileHandler))
 	mux.HandleFunc("/record/clear", s.authAndStatWrapper("clearRecords", http.MethodPost, s.clearRecordsHandler))
+	mux.HandleFunc("/record/tombstone_stats", s.authAndStatWrapper("tombstoneStats", http.MethodGet, s.tombstoneStatsHandler))
+	mux.HandleFunc("/record/tombstone_purge", s.authAndStatWrapper("purgeTombstones", http.MethodPost, s.purgeTombstonesHandler))
+	// Assets: HEAD/GET/PUT on /asset/{recordUuid}/{filename}. Method dispatch is
+	// handled inside assetHandler, so the wrapper is registered with any method.
+	mux.HandleFunc("/asset/", s.authAndStatWrapper("asset", "", s.assetHandler))
 	mux.HandleFunc("/user/change_password", s.authAndStatWrapper("changePassword", http.MethodPost, s.changePasswordHandler))
 	mux.HandleFunc("/api_stat/list", s.authAndStatWrapper("queryAPIStat", http.MethodGet, s.queryAPIStatHandler))
 

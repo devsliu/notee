@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:notee/filesync/database.dart';
-import 'package:notee/filesync/path_utils.dart';
+import 'package:notee/filesync/record_ext.dart';
 
 import 'table_record.dart';
 
@@ -39,7 +39,7 @@ class RemoteRecord {
   /// RemoteRecord → LocalRecord: copy all remote_*, local_* = remote_* (synced baseline).
   /// [baseFileVersion]: which file version the local base file corresponds to, default 0 (new record).
   LocalRecord toLocalRecord(int batchNo, {int baseFileVersion = 0}) {
-    final formattedPath = normalizePath(path);
+    final formattedPath = RecordPath.normalizePath(path);
 
     // remoteJson stores the full server snapshot; path is formatted for consistency.
     final remoteJson = jsonEncode({...toJson(), 'path': formattedPath});

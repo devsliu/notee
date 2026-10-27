@@ -395,6 +395,43 @@ class AppLocalizationsZh extends AppLocalizations {
   String get operates => '操作日志';
 
   @override
+  String get tombstoneManager => '回收站清理';
+
+  @override
+  String get tombstoneManagerDesc => '清理服务端软删除笔记和孤立附件';
+
+  @override
+  String get tombstoneTitle => '回收站统计';
+
+  @override
+  String get tombstoneTotalRecords => '活跃记录';
+
+  @override
+  String get tombstoneDeletedRecords => '软删除记录';
+
+  @override
+  String get tombstoneDeletedAssets => '孤立附件';
+
+  @override
+  String get tombstoneMaxVersion => '全表最大版本';
+
+  @override
+  String get tombstonePurgedVersion => '墓碑版本号';
+
+  @override
+  String get tombstonePurge => '立即清理';
+
+  @override
+  String tombstonePurgeConfirm(Object count) {
+    return '将永久删除 $count 条软删除笔记和所有孤立附件，操作不可恢复。';
+  }
+
+  @override
+  String tombstonePurgeDone(Object assets, Object count) {
+    return '已清理 $count 条笔记和 $assets 个孤立附件';
+  }
+
+  @override
   String emptyInputCheck(Object input) {
     return '请输入$input';
   }
@@ -407,6 +444,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get importFailed => '笔记导入失败';
+
+  @override
+  String get importFolder => '导入文件夹';
+
+  @override
+  String get importNoFiles => '未找到 .md 或 .txt 文件';
+
+  @override
+  String importCompleted(Object imported, Object skipped) {
+    return '导入完成：成功 $imported 个，跳过 $skipped 个';
+  }
+
+  @override
+  String get importDiscovering => '正在发现关联文档...';
+
+  @override
+  String importingProgress(int done, int total) {
+    return '正在导入 ($done/$total)';
+  }
+
+  @override
+  String get cancelled => '已取消';
 
   @override
   String get collapseAll => '收起所有文件夹';

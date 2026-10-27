@@ -31,11 +31,6 @@ class _RecordRecyclerPageState extends BaseState<RecordRecyclerPage> implements 
     listen(Repository.get().recyclerCountNotifier, _load);
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   Future<void> _load() async {
     final results = await Future.wait([
       Repository.get().getRecycleFolderGroups(),

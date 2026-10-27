@@ -121,10 +121,39 @@
   "showAllTabs": "Show all tabs",
   "database": "Database",
   "operates": "Logs",
+  "tombstoneManager": "Recycle Bin Cleanup",
+  "tombstoneManagerDesc": "Purge soft-deleted records and orphaned assets",
+  "tombstoneTitle": "Recycle Bin Statistics",
+  "tombstoneTotalRecords": "Active records",
+  "tombstoneDeletedRecords": "Soft-deleted records",
+  "tombstoneDeletedAssets": "Orphaned assets",
+  "tombstoneMaxVersion": "Max tombstone version",
+  "tombstonePurgedVersion": "Purged version",
+  "tombstonePurge": "Purge Now",
+  "tombstonePurgeConfirm": "Permanently delete {count} soft-deleted records and all orphaned assets? This action cannot be undone.",
+  "tombstonePurgeDone": "Purged {count} records and {assets} orphaned assets",
   "emptyInputCheck": "Please input {input}",
   "importDocument": "Import Documents",
-  "importSuccess": "Import Note Success",
-  "importFailed": "Import Note Failed",
+  "importSuccess": "Import record success",
+  "importFailed": "Import record failed",
+  "importFolder": "Import Folder",
+  "importNoFiles": "No .md or .txt files found",
+  "importCompleted": "Import done: {imported} imported, {skipped} skipped",
+  "@importCompleted": {
+    "placeholders": {
+      "imported": {},
+      "skipped": {}
+    }
+  },
+  "importDiscovering": "Discovering linked documents...",
+  "importingProgress": "Importing ({done}/{total})",
+  "@importingProgress": {
+    "placeholders": {
+      "done": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "cancelled": "Cancelled",
   "collapseAll": "Collapse All Folders",
   "undo": "Undo",
   "redo": "Redo",

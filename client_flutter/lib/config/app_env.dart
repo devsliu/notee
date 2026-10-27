@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:notee/ui/desktop/desktop_title_bar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:notee/utils/kv_store.dart';

@@ -19,6 +19,7 @@ import 'upgrade_manager.dart';
 import 'login_users_control.dart';
 import '../../config/language_manager.dart';
 import '../../utils/utils.dart';
+import '../../filesync/repository.dart';
 
 class SettingsPage extends StatefulWidget {
   final bool showAppBar;
@@ -313,6 +314,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 ListTile(onTap: _onRecordsDbTap, title: Text(l10n.database)),
                 divider,
                 ListTile(onTap: _onOperatesDbTap, title: Text(l10n.operates)),
+                divider,
+                ListTile(
+                  onTap: UserManager.current.isLoggedIn ? _onTombstoneTap : null,
+                  title: Text(l10n.tombstoneManager),
+                  subtitle: Text(l10n.tombstoneManagerDesc),
+                  enabled: UserManager.current.isLoggedIn,
+                ),
               ],
             ),
           ],
@@ -357,5 +365,91 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _onOperatesDbTap() {
     Navigator.push(context, MaterialPageRoute(builder: (context) => const LogsPage()));
+  }
+
+  Future<void> _onTombstoneTap() async {
+    if (!UserManager.current.isLoggedIn) return;
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final result = await HttpApi.getTombstoneStats();
+    if (!mounted) return;
+    if (!result.isSuccess() || result.data == null) {
+      scaffoldMessenger.showSnackBar(SnackBar(content: Text(l10n.syncErrServerDb)));
+      return;
+    }
+    final stats = result.data!;
+
+    // Show stats dialog
+    final theme = Theme.of(context);
+    if (!mounted) return;
+    final confirmDelete = await showDialog<bool>(
+      context: context,
+      useRootNavigator: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.tombstoneTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _tombstoneRow(theme, l10n.tombstoneTotalRecords, stats.activeRecords.toString()),
+            _tombstoneRow(theme, l10n.tombstoneDeletedRecords, stats.tombstoneCount.toString()),
+            _tombstoneRow(theme, l10n.tombstoneDeletedAssets, stats.tombstoneAssetCount.toString()),
+            _tombstoneRow(theme, l10n.tombstoneMaxVersion, stats.maxVersion.toString()),
+            _tombstoneRow(theme, l10n.tombstonePurgedVersion, stats.purgedVersion.toString()),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.cancel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l10n.tombstonePurge)),
+        ],
+      ),
+    );
+    if (confirmDelete != true) return;
+
+    // Confirm dialog
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      useRootNavigator: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.tombstonePurge),
+        content: Text(l10n.tombstonePurgeConfirm(stats.tombstoneCount)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.cancel)),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
+            child: Text(l10n.tombstonePurge),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    // Perform purge
+    final scaffold = ScaffoldMessenger.of(context);
+    final purgeResult = await HttpApi.purgeTombstones();
+    if (!mounted) return;
+    if (purgeResult.isSuccess() && purgeResult.data != null) {
+      scaffold.showSnackBar(
+        SnackBar(content: Text(l10n.tombstonePurgeDone(stats.tombstoneAssetCount, purgeResult.data!.purgedCount))),
+      );
+      // Trigger a sync to update local DB state after purgedVersion advanced
+      unawaited(Repository.get().syncRecords(true));
+    } else {
+      scaffold.showSnackBar(SnackBar(content: Text(l10n.syncErrServerDb)));
+    }
+  }
+
+  Widget _tombstoneRow(ThemeData theme, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: theme.colorScheme.outline)),
+          Text(value),
+        ],
+      ),
+    );
   }
 }

@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:appflowy_editor/appflowy_editor.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:notee/config/language_manager.dart';
+import 'package:notee/filesync/record_ext.dart';
+import 'package:notee/utils/app_logger.dart';
 
 class FixedToolbar extends StatefulWidget {
   const FixedToolbar({
@@ -362,3 +366,62 @@ final ToolbarItem tableToolbarItem = ToolbarItem(
     return child;
   },
 );
+
+typedef ImageAssetBuilder = ({String destPath, String insertUrl}) Function(String src);
+
+ToolbarItem buildImageToolbarItem({required ImageAssetBuilder buildAsset}) => ToolbarItem(
+  id: 'editor.image',
+  group: 3,
+  isActive: (_) => false,
+  builder: (context, editorState, highlightColor, iconColor, tooltipBuilder) {
+    final child = SVGIconItemWidget(
+      iconBuilder: (_) => Icon(Icons.image_outlined, size: 18, color: iconColor),
+      isHighlight: false,
+      highlightColor: highlightColor,
+      iconColor: iconColor,
+      onPressed: () async {
+        final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
+        if (result == null || result.files.single.path == null) return;
+        final src = result.files.single.path!;
+        final (:destPath, :insertUrl) = buildAsset(src);
+        handleInsertImage(editorState: editorState, src: src, destPath: destPath, relativeUrl: insertUrl);
+      },
+    );
+    if (tooltipBuilder != null) {
+      return tooltipBuilder(context, 'editor.image', 'Image', child);
+    }
+    return child;
+  },
+);
+
+/// Insert an image node into [editorState].
+///
+/// - If [src] is a network URL, insert it as-is (no asset copy, no sync).
+/// - Otherwise, copy [src] to [destPath] first, then insert [relativeUrl]
+///   into the document so the image renders immediately.
+///
+/// All three strings are expected to be pre-assembled by the caller.
+void handleInsertImage({
+  required EditorState editorState,
+  required String src,
+  required String destPath,
+  required String relativeUrl,
+}) {
+  Future.microtask(() async {
+    if (isRemoteUrl(src)) {
+      await editorState.insertImageNode(src);
+      return;
+    }
+
+    try {
+      final destDir = Directory(destPath).parent;
+      if (!destDir.existsSync()) destDir.createSync(recursive: true);
+      File(src).copySync(destPath);
+    } catch (e) {
+      AppLogger.e('Editor', "[handleInsertImage] copy asset failed: $e");
+      return;
+    }
+
+    await editorState.insertImageNode(relativeUrl);
+  });
+}
