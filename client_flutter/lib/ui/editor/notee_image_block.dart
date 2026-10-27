@@ -185,16 +185,16 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       );
     }
 
-    // Bypass: AbsorbPointer swallows taps so MobileSelectionGestureDetector
-    // never turns them into selection changes — which on S24 Ultra
-    // (Android 16 beta kernel) triggers a userfaultfd timeout storm and
-    // locks the UI thread for ~10 s → ANR.  Scrolling and edge-resize still
-    // work.  Remove once Samsung ships the fixed kernel.
-    child = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {},
-      child: AbsorbPointer(child: child),
-    );
+    // Android-only: on some Samsung devices the MobileSelectionGestureDetector
+    // triggers a kernel userfaultfd timeout storm and locks the UI thread when
+    // selection changes happen on block components.  Swallow pointer events
+    // here so selection never fires, without introducing a competing
+    // GestureRecognizer that could make things worse.  AbsorbPointer alone
+    // blocks child components from receiving pointers; no outer GestureDetector
+    // is needed.
+    if (Platform.isAndroid) {
+      child = AbsorbPointer(child: child);
+    }
 
     child = Padding(padding: margin, child: child);
     return child;
