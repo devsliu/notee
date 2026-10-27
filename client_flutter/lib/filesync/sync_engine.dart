@@ -458,6 +458,13 @@ class SyncEngine {
       // Local marker `<name>.1` means the asset is already on the server;
       // skip the HTTP HEAD check entirely.
       if (fileStore.hasAssetMarker(uuid, name)) continue;
+      // HTTP HEAD first — if the server already has this asset, skip PUT.
+      try {
+        if (await HttpApi.headAsset(uuid, name)) {
+          fileStore.markAssetUploaded(uuid, name);
+          continue;
+        }
+      } catch (_) {} // offline / retry exhausted → fall through to PUT
       try {
         final result = await HttpApi.uploadAsset(uuid, name, localPath);
         if (result.isSuccess()) {
