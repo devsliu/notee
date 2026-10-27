@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:notee/filesync/database.dart';
 import 'package:notee/filesync/http_api.dart';
-import 'package:notee/filesync/record_ext.dart' show isRemoteUrl, extractAssetFilename, RecordPath;
+import 'package:notee/filesync/record_ext.dart' show isRemoteUrl, extractAssetFilename;
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/utils/dedup_task_queue.dart';
 import 'package:notee/utils/utils.dart';
@@ -213,7 +213,7 @@ class FileStore {
     try {
       for (final entity in dir.listSync()) {
         if (entity is! File) continue;
-        final name = RecordPath.basename(entity.path);
+        final name = p.basename(entity.path);
         final base = name.endsWith('.1') ? name.substring(0, name.length - 2) : name;
         if (!keep.contains(base)) {
           entity.deleteSync();

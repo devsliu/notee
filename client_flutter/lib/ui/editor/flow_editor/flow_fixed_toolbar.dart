@@ -8,7 +8,6 @@ import 'package:intl/intl.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/utils/app_logger.dart';
-import 'package:notee/utils/utils.dart';
 
 class FixedToolbar extends StatefulWidget {
   const FixedToolbar({
@@ -398,8 +397,8 @@ ToolbarItem buildImageToolbarItem({required ImageAssetBuilder buildAsset}) => To
 /// Insert an image node into [editorState].
 ///
 /// - If [src] is a network URL, insert it as-is (no asset copy, no sync).
-/// - Otherwise, move [src] to [destPath] then insert [relativeUrl] into the
-///   document so it syncs with the note.
+/// - Otherwise, copy [src] to [destPath] first, then insert [relativeUrl]
+///   into the document so the image renders immediately.
 ///
 /// All three strings are expected to be pre-assembled by the caller.
 void handleInsertImage({
@@ -417,9 +416,9 @@ void handleInsertImage({
     try {
       final destDir = Directory(destPath).parent;
       if (!destDir.existsSync()) destDir.createSync(recursive: true);
-      Utils.moveFile(File(src), File(destPath));
+      File(src).copySync(destPath);
     } catch (e) {
-      AppLogger.e('Editor', "[handleInsertImage] move asset failed: $e");
+      AppLogger.e('Editor', "[handleInsertImage] copy asset failed: $e");
       return;
     }
 
