@@ -395,7 +395,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get operates => '操作日志';
 
   @override
-  String get tombstoneManager => '服务单墓碑数据清理';
+  String get tombstoneManager => '服务器墓碑数据清理';
 
   @override
   String get tombstoneManagerDesc => '清理服务端软删除笔记和孤立附件';
