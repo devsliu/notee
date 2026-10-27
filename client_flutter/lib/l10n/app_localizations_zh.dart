@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -395,7 +394,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get operates => '操作日志';
 
   @override
-  String get tombstoneManager => '回收站清理';
+  String get tombstoneManager => '服务单墓碑数据清理';
 
   @override
   String get tombstoneManagerDesc => '清理服务端软删除笔记和孤立附件';
@@ -566,8 +565,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get metaConflict => '元数据冲突';
 
   @override
-  String get recordContentUnchangedMetaConflict =>
-      '笔记内容未改变, 仅元数据冲突. 请选择保留哪一侧的修改.';
+  String get recordContentUnchangedMetaConflict => '笔记内容未改变, 仅元数据冲突. 请选择保留哪一侧的修改.';
 
   @override
   String get conflictRemoteVersion => '远端版本';

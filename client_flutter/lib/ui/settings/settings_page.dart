@@ -424,7 +424,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
     if (confirmed != true) return;
-
+    if (!mounted) return;
     // Perform purge
     final scaffold = ScaffoldMessenger.of(context);
     final purgeResult = await HttpApi.purgeTombstones();

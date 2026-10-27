@@ -121,7 +121,7 @@
   "showAllTabs": "Show all tabs",
   "database": "Database",
   "operates": "Logs",
-  "tombstoneManager": "Recycle Bin Cleanup",
+  "tombstoneManager": "Server tombstone data cleanup",
   "tombstoneManagerDesc": "Purge soft-deleted records and orphaned assets",
   "tombstoneTitle": "Recycle Bin Statistics",
   "tombstoneTotalRecords": "Active records",

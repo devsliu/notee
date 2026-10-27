@@ -121,7 +121,7 @@
   "showAllTabs": "显示所有标签页",
   "database": "数据库",
   "operates": "操作日志",
-  "tombstoneManager": "回收站清理",
+  "tombstoneManager": "服务单墓碑数据清理",
   "tombstoneManagerDesc": "清理服务端软删除笔记和孤立附件",
   "tombstoneTitle": "回收站统计",
   "tombstoneTotalRecords": "活跃记录",
