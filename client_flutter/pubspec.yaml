@@ -25,7 +25,7 @@ dependencies:
   crypto: ^3.0.7
   encrypt: ^5.0.3
   open_filex: ^4.5.4
-  archive: ^3.4.1
+  archive: ^4.5.2
   package_info_plus: ^9.0.1
   drift: ^2.35.2
   # sqlite3_flutter_libs: ^0.6.0+eol
@@ -41,7 +41,7 @@ dependencies:
   timezone: ^0.11.1
   table_calendar: ^3.3.0
   share_plus: ^12.0.2
-  sqlite3: ^3.7.1
+  sqlite3: ^3.8.0
 
 
 dev_dependencies:
