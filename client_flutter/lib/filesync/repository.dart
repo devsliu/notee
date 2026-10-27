@@ -341,14 +341,15 @@ class Repository {
     String name,
     bool sync,
     int fileEditAt, {
+    String? uuid,
     String? reminder,
     String? tags,
   }) async {
     if (db == null || fileStore == null) return null;
     int time = DateTime.now().millisecondsSinceEpoch;
-    final uuid = Uuid().v4();
+    final recordUuid = uuid ?? Uuid().v4();
     await db!.insertRecord(
-      uuid: uuid,
+      uuid: recordUuid,
       name: name,
       path: path,
       fileEditAt: fileEditAt,
@@ -358,10 +359,10 @@ class Repository {
       reminder: reminder,
       tags: tags,
     );
-    final record = (await db!.getRecord(uuid))!;
+    final record = (await db!.getRecord(recordUuid))!;
     await recordTree.insertRecord(record);
-    AppLogger.i('Repository', "create record $uuid ${record.local.path}${record.local.name}");
-    fileStore!.deleteWorkFile(uuid);
+    AppLogger.i('Repository', "create record $recordUuid ${record.local.path}${record.local.name}");
+    fileStore!.deleteWorkFile(recordUuid);
     if (sync) await syncRecords(false);
     return record;
   }

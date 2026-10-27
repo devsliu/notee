@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:appflowy_editor/appflowy_editor.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:notee/filesync/file_store.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/filesync/reminder_tree.dart';
+import 'package:notee/ui/base_app.dart';
 import 'package:notee/ui/calendar/reminder_task_editor.dart';
 import 'package:notee/model/record_utils.dart';
 import 'package:notee/ui/editor/flow_editor/flow_fixed_toolbar.dart';
@@ -74,6 +76,29 @@ Map<String, BlockComponentBuilder> buildEditorBlockBuilders(
   };
 }
 
+/// Custom text span decorator that intercepts `record://<uuid>` links and
+/// navigates to the corresponding note; all other hrefs fall through to the
+/// platform default decorator (which opens external URLs).
+TextSpan _recordLinkAwareDecorator(
+  BuildContext context,
+  Node node,
+  int index,
+  TextInsert text,
+  TextSpan before,
+  TextSpan after,
+) {
+  final href = text.attributes?[AppFlowyRichTextKeys.href] as String?;
+  if (href != null && href.startsWith(RecordImport.recordLinkPrefix)) {
+    final uuid = href.substring(RecordImport.recordLinkPrefix.length);
+    final recognizer = TapGestureRecognizer()
+      ..onTap = () => AppNavigator.of(context).navigate('${AppNavigator.uriRecord}$uuid');
+    return before.copyWith(recognizer: recognizer);
+  }
+  return Utils.isDesktop()
+      ? defaultTextSpanDecoratorForAttribute(context, node, index, text, before, after)
+      : mobileTextSpanDecoratorForAttribute(context, node, index, text, before, after);
+}
+
 /// Shared editor style (desktop/mobile switch + dark-mode-aware selection color).
 EditorStyle buildEditorStyle(ThemeData theme, TextStyleConfiguration textStyleConfiguration) {
   final isDesktop = Utils.isDesktop();
@@ -87,12 +112,14 @@ EditorStyle buildEditorStyle(ThemeData theme, TextStyleConfiguration textStyleCo
           cursorColor: theme.colorScheme.primary,
           selectionColor: selectionColor,
           textStyleConfiguration: textStyleConfiguration,
+          textSpanDecorator: _recordLinkAwareDecorator,
         )
       : EditorStyle.mobile(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           cursorColor: theme.colorScheme.primary,
           selectionColor: selectionColor,
           textStyleConfiguration: textStyleConfiguration,
+          textSpanDecorator: _recordLinkAwareDecorator,
         );
 }
 

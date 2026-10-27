@@ -32,6 +32,7 @@ import 'package:notee/ui/editor/flow_editor/custom_code_block_parser.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../utils/app_logger.dart';
 import '../../utils/utils.dart';
@@ -75,6 +76,77 @@ class DocumentImage {
 }
 
 // ============================================================================
+// Part 1.5 — Document link (href) walking + rewriting (pure format)
+// ============================================================================
+
+class DocumentLink {
+  /// Recursively walk [document] and return every href attribute value found
+  /// in text deltas.  Used by the import preprocessor to discover linked
+  /// `.md` / `.txt` files that must also be imported.
+  static List<String> collectHrefs(Document document) {
+    final hrefs = <String>[];
+    void visit(Node node) {
+      final delta = node.delta;
+      if (delta != null) {
+        for (final op in delta) {
+          if (op is TextInsert) {
+            final href = op.attributes?[AppFlowyRichTextKeys.href] as String?;
+            if (href != null && href.isNotEmpty) hrefs.add(href);
+          }
+        }
+      }
+      for (final child in node.children) {
+        visit(child);
+      }
+    }
+
+    for (final child in document.root.children) {
+      visit(child);
+    }
+    return hrefs;
+  }
+
+  /// Rewrite every href attribute in [document] by passing it through [rewrite].
+  /// When [rewrite] returns null the original href is kept unchanged.
+  static void rewriteHrefs(Document document, String? Function(String href) rewrite) {
+    void visit(Node node) {
+      final delta = node.delta;
+      if (delta != null) {
+        bool changed = false;
+        final newOps = <TextOperation>[];
+        for (final op in delta) {
+          if (op is TextInsert) {
+            final attrs = op.attributes;
+            if (attrs != null && attrs.containsKey(AppFlowyRichTextKeys.href)) {
+              final href = attrs[AppFlowyRichTextKeys.href] as String?;
+              if (href != null) {
+                final replaced = rewrite(href);
+                if (replaced != null) {
+                  changed = true;
+                  newOps.add(TextInsert(op.text, attributes: {...attrs, AppFlowyRichTextKeys.href: replaced}));
+                  continue;
+                }
+              }
+            }
+          }
+          newOps.add(op);
+        }
+        if (changed) {
+          node.updateAttributes({'delta': Delta(operations: newOps).toJson()});
+        }
+      }
+      for (final child in node.children) {
+        visit(child);
+      }
+    }
+
+    for (final child in document.root.children) {
+      visit(child);
+    }
+  }
+}
+
+// ============================================================================
 // Part 2 — Format-level helpers (pure, no Repository / FileStore / UI)
 // ============================================================================
 
@@ -91,6 +163,7 @@ class DocumentIO {
     String body, {
     String? assetUuid,
     String? exportAssetDir,
+    String? Function(String href)? hrefRewriter,
   }) {
     if (body.isEmpty) return null;
     final trimmed = body.trim();
@@ -100,6 +173,9 @@ class DocumentIO {
         final doc = Document.fromJson(map);
         if (assetUuid != null && exportAssetDir != null) {
           _prepareAssetsForExport(doc, assetUuid, exportAssetDir);
+        }
+        if (hrefRewriter != null) {
+          DocumentLink.rewriteHrefs(doc, hrefRewriter);
         }
         return documentToMarkdown(doc);
       } catch (_) {
@@ -155,114 +231,253 @@ class DocumentIO {
       }
     }
   }
-
-  /// Walk every local relative image URL in [document] (not http/https/ftp,
-  /// not already `assets/`) — copy the file into `assets/{uuid}/`, rewrite
-  /// the node URL, and return the list of copied filenames.  Preserves
-  /// original basenames; appends `_1`, `_2`, … only on collision.
-  static Future<List<String>> rewriteImportImages({
-    required Document document,
-    required String sourceDir,
-    required String uuid,
-  }) async {
-    final fileStore = Repository.get().fileStore;
-    if (fileStore == null) return [];
-
-    final rewrittenFilenames = <String>[];
-    final taken = <String>{};
-    final assetDir = Directory(fileStore.getAssetDir(uuid));
-    await assetDir.create(recursive: true);
-
-    String suggestName(String basename) {
-      if (!taken.contains(basename)) {
-        taken.add(basename);
-        return basename;
-      }
-      final ext = p.extension(basename);
-      final base = p.basenameWithoutExtension(basename);
-      int i = 1;
-      while (taken.contains('${base}_$i$ext')) {
-        i++;
-      }
-      final name = '${base}_$i$ext';
-      taken.add(name);
-      return name;
-    }
-
-    for (final node in DocumentImage.collectImageNodes(document)) {
-      final url = node.attributes['url'];
-      if (url == null || url.isEmpty) continue;
-      if (isRemoteUrl(url) || isNoteeAssetUrl(url)) continue;
-
-      final decodedUrl = Uri.decodeFull(url);
-      final absoluteSrc = p.normalize(p.join(sourceDir, decodedUrl));
-      final srcFile = File(absoluteSrc);
-      if (!srcFile.existsSync()) {
-        AppLogger.w('Import', "image not found, skipping: $absoluteSrc");
-        continue;
-      }
-
-      final name = suggestName(p.basename(absoluteSrc));
-      final destFile = File(fileStore.getAssetPath(uuid, name));
-      try {
-        srcFile.copySync(destFile.path);
-      } catch (e) {
-        AppLogger.e('Import', "image copy failed $absoluteSrc → ${destFile.path}: $e");
-        continue;
-      }
-
-      node.updateAttributes({ImageBlockKeys.url: buildAssetUrl(name)});
-      rewrittenFilenames.add(name);
-    }
-
-    return rewrittenFilenames;
-  }
 }
 
 // ============================================================================
 // Part 3 — Import business glue (Repository + FileStore + FilePicker)
 // ============================================================================
 
+/// Internal: a single document queued for import after preprocessing.
+class _PreImportItem {
+  final String uuid;
+  final String noteeFolder;
+
+  String cacheFile = '';
+  final List<(String name, String srcPath)> assets = [];
+  bool cached = false;
+
+  _PreImportItem({required this.uuid, required this.noteeFolder});
+}
+
 class RecordImport {
-  /// Persist a parsed [document] as a new record under [folderPath].
-  /// Creates the DB record first (to obtain a uuid), then walks the document
-  /// copying local images into `assets/{uuid}/` and rewriting their URLs to
-  /// the managed `assets/{uuid}/filename` form, then writes the work file.
-  static Future<void> saveImportDocument(
-    String folderPath,
-    Document document, {
-    required String sourceDir,
-  }) async {
+  static const String recordLinkPrefix = 'record://';
+
+  /// Returns true if [href] points at a local `.md` / `.txt` file (relative
+  /// path, no network scheme).  Used during import preprocessing to discover
+  /// linked documents that must also be imported.
+  /// Parse [href] into ([path], [rest]) where [rest] is `#fragment` and/or
+  /// `?query` preserved verbatim.  Returns null if the path part is empty.
+  static (String path, String rest)? _splitHref(String href) {
+    final decoded = Uri.decodeFull(href);
+    // Split off #fragment (takes priority over ?query per RFC 3986).
+    final hashIdx = decoded.indexOf('#');
+    String path;
+    String rest;
+    if (hashIdx >= 0) {
+      path = decoded.substring(0, hashIdx);
+      rest = decoded.substring(hashIdx); // "#section" or "#s?q=1"
+    } else {
+      final qIdx = decoded.indexOf('?');
+      if (qIdx >= 0) {
+        path = decoded.substring(0, qIdx);
+        rest = decoded.substring(qIdx); // "?q=1"
+      } else {
+        path = decoded;
+        rest = '';
+      }
+    }
+    if (path.isEmpty) return null;
+    return (path, rest);
+  }
+
+  static bool _isLocalDocLink(String href) {
+    if (href.isEmpty || isRemoteUrl(href)) return false;
+    if (href.startsWith(recordLinkPrefix)) return false;
+    final split = _splitHref(href);
+    if (split == null) return false;
+    final lower = split.$1.toLowerCase();
+    return lower.endsWith('.md') || lower.endsWith('.txt');
+  }
+
+  /// Return a filename unique within a single document, appending `_1`, `_2`,
+  /// … when [basename] is already present in [taken].  Registers the result.
+  static String _dedupAssetName(String basename, Set<String> taken) {
+    if (!taken.contains(basename)) {
+      taken.add(basename);
+      return basename;
+    }
+    final ext = p.extension(basename);
+    final base = p.basenameWithoutExtension(basename);
+    int i = 1;
+    while (taken.contains('${base}_$i$ext')) {
+      i++;
+    }
+    final name = '${base}_$i$ext';
+    taken.add(name);
+    return name;
+  }
+
+  /// Preprocess seed files for import.
+  ///
+  /// Parses each seed file and any `.md`/`.txt` files reachable via relative
+  /// href links, assigns a UUID to each, rewrites local-doc hrefs to
+  /// `record://<uuid>`, rewrites image URLs to `assets://<name>`, and writes
+  /// each body to a flat temp cache folder.  Only one `Document` is held in
+  /// memory at a time.
+  ///
+  /// [seeds] maps an absolute file path to `(target notee folder, base dir)`.
+  /// The base dir is used to compute the relative folder for linked docs.
+  static Future<List<_PreImportItem>> _preprocess({required Map<String, (String folder, String baseDir)> seeds}) async {
+    // absPath -> item.  Single source of truth for uuid, folder, state.
+    final items = <String, _PreImportItem>{};
+    final queue = <String>[];
+    // absPath -> baseDir.  Seeds get their own; linked docs inherit parent's.
+    final baseDirMap = <String, String>{};
+
+    void enqueue(String absPath, String uuid, String noteeFolder, String baseDir) {
+      if (items.containsKey(absPath)) return;
+      items[absPath] = _PreImportItem(uuid: uuid, noteeFolder: noteeFolder);
+      baseDirMap[absPath] = baseDir;
+      queue.add(absPath);
+    }
+
+    for (final entry in seeds.entries) {
+      enqueue(entry.key, const Uuid().v4(), entry.value.$1, entry.value.$2);
+    }
+
+    final cacheDir = Directory(
+      p.join(Directory.systemTemp.path, 'notee_import_${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4()}'),
+    );
+    await cacheDir.create(recursive: true);
+
+    while (queue.isNotEmpty) {
+      final absPath = queue.removeAt(0);
+      final item = items[absPath];
+      if (item == null || item.cached) continue;
+
+      final file = File(absPath);
+      if (!file.existsSync()) continue;
+
+      final bytes = await file.readAsBytes();
+      final content = await DocumentIO.decodeBytes(bytes);
+      if (content.isEmpty) continue;
+
+      final document = markdownToDocument(content, markdownParsers: const [CustomMarkdownCodeBlockParser()]);
+      final sourceDir = p.dirname(absPath);
+
+      // Discover linked local docs — allocate uuid + compute noteeFolder eagerly.
+      for (final href in DocumentLink.collectHrefs(document)) {
+        if (!_isLocalDocLink(href)) continue;
+        final split = _splitHref(href);
+        if (split == null) continue;
+        final linkedAbs = p.normalize(p.join(sourceDir, split.$1));
+        if (items.containsKey(linkedAbs)) continue;
+
+        // Compute linked doc's noteeFolder from this item's perspective.
+        final baseDir = baseDirMap[absPath] ?? sourceDir;
+        String linkedFolder;
+        final seedEntry = seeds[linkedAbs];
+        if (seedEntry != null) {
+          linkedFolder = seedEntry.$1;
+        } else {
+          final relPath = p.relative(linkedAbs, from: baseDir);
+          final relDir = p.dirname(relPath);
+          if (relDir != '.' && relDir.isNotEmpty) {
+            final normalized = relDir.replaceAll('\\', '/');
+            linkedFolder = item.noteeFolder + (item.noteeFolder.endsWith('/') ? '' : '/') + normalized;
+            if (!linkedFolder.endsWith('/')) linkedFolder += '/';
+          } else {
+            linkedFolder = item.noteeFolder;
+          }
+        }
+        enqueue(linkedAbs, const Uuid().v4(), linkedFolder, baseDir);
+      }
+
+      // Rewrite this doc's local hrefs using the naming map.
+      DocumentLink.rewriteHrefs(document, (href) {
+        if (!_isLocalDocLink(href)) return null;
+        final split = _splitHref(href);
+        if (split == null) return null;
+        final linkedAbs = p.normalize(p.join(sourceDir, split.$1));
+        final targetUuid = items[linkedAbs]?.uuid;
+        if (targetUuid == null) return null;
+        return '$recordLinkPrefix$targetUuid${split.$2}';
+      });
+
+      // Rewrite image URLs + record asset sources.
+      final taken = <String>{};
+      for (final node in DocumentImage.collectImageNodes(document)) {
+        final url = node.attributes[ImageBlockKeys.url] as String?;
+        if (url == null || url.isEmpty) continue;
+        if (isRemoteUrl(url) || isNoteeAssetUrl(url)) continue;
+
+        final split = _splitHref(url);
+        if (split == null) continue;
+        final absoluteSrc = p.normalize(p.join(sourceDir, split.$1));
+        final srcFile = File(absoluteSrc);
+        if (!srcFile.existsSync()) {
+          AppLogger.w('Import', "image not found, skipping: $absoluteSrc");
+          continue;
+        }
+
+        final dedupName = _dedupAssetName(p.basename(absoluteSrc), taken);
+        node.updateAttributes({ImageBlockKeys.url: buildAssetUrl(dedupName)});
+        item.assets.add((dedupName, absoluteSrc));
+      }
+
+      // Write rewritten body to cache, mark done.
+      item.cacheFile = p.join(cacheDir.path, item.uuid);
+      await File(item.cacheFile).writeAsString(DocumentIO.documentToBody(document));
+      item.cached = true;
+    }
+
+    return items.values.where((e) => e.cached).toList();
+  }
+
+  /// Persist a preprocessed [item] as a new record.  Body and assets are
+  /// copied into the filestore only after `createRecord` succeeds.
+  static Future<void> _savePreprocessedItem(_PreImportItem item) async {
     final fileStore = Repository.get().fileStore;
     if (fileStore == null) return;
+
+    final body = await File(item.cacheFile).readAsString();
+    // Parse only for the title; asset URLs are already final in the body.
+    final document = Document.fromJson(jsonDecode(body) as Map<String, dynamic>);
 
     String name = RecordUtils.getDocumentTitle(document);
     if (name.isEmpty) name = RecordUtils.generateRecordName();
 
+    await Repository.get().recordTree.createFolder(item.noteeFolder);
+
     final record = await Repository.get().createRecord(
-      folderPath, name, false, DateTime.now().millisecondsSinceEpoch,
+      item.noteeFolder,
+      name,
+      false,
+      DateTime.now().millisecondsSinceEpoch,
+      uuid: item.uuid,
     );
     if (record == null) return;
 
     try {
-      final assetNames = await DocumentIO.rewriteImportImages(
-        document: document,
-        sourceDir: sourceDir,
-        uuid: record.uuid,
-      );
-
-      final writeContent = RecordSections.buildRecordContent(
-        assetNames, DocumentIO.documentToBody(document),
-      );
+      final assetNames = item.assets.map((a) => a.$1).toList();
+      final writeContent = RecordSections.buildRecordContent(assetNames, body);
       await fileStore.createWorkFile(record.uuid, writeContent);
+
+      if (item.assets.isNotEmpty) {
+        final assetDir = Directory(fileStore.getAssetDir(record.uuid));
+        await assetDir.create(recursive: true);
+        for (final (assetName, srcPath) in item.assets) {
+          final dest = File(fileStore.getAssetPath(record.uuid, assetName));
+          try {
+            await File(srcPath).copy(dest.path);
+          } catch (e) {
+            AppLogger.e('Import', "asset copy failed $srcPath → ${dest.path}: $e");
+          }
+        }
+      }
     } catch (e) {
-      AppLogger.e('Import', "saveImportDocument failed uuid=${record.uuid}: $e");
+      AppLogger.e('Import', "savePreprocessedItem failed uuid=${record.uuid}: $e");
       await Repository.get().purgeUnsyncedRecord(record.uuid);
       rethrow;
+    } finally {
+      try {
+        await File(item.cacheFile).delete();
+      } catch (_) {}
     }
   }
 
   /// Pick one or more .md / .txt files and import each as a record.
+  /// Linked local documents (relative `.md`/`.txt` hrefs) are imported too.
   static Future<void> pickAndImportDocuments(
     BuildContext context,
     String folderPath,
@@ -277,22 +492,20 @@ class RecordImport {
       );
       if (result == null) return;
 
+      final seeds = <String, (String, String)>{};
       for (final file in result.files) {
         final filePath = file.path;
         if (filePath == null) continue;
-        var bytes = file.bytes;
-        bytes ??= await File(filePath).readAsBytes();
-        final content = await DocumentIO.decodeBytes(bytes);
-        if (content.isEmpty) continue;
-
         final ext = file.extension?.toLowerCase() ??
             p.extension(filePath).toLowerCase().replaceFirst('.', '');
         if (ext != 'md' && ext != 'txt') continue;
+        seeds[filePath] = (folderPath, p.dirname(filePath));
+      }
+      if (seeds.isEmpty) return;
 
-        final delta = markdownToDocument(
-          content, markdownParsers: const [CustomMarkdownCodeBlockParser()],
-        );
-        await saveImportDocument(folderPath, delta, sourceDir: p.dirname(filePath));
+      final items = await _preprocess(seeds: seeds);
+      for (final item in items) {
+        await _savePreprocessedItem(item);
         importCount++;
       }
 
@@ -313,9 +526,8 @@ class RecordImport {
   }
 
   /// Recursively import all `.md` / `.txt` files under a user-chosen folder,
-  /// mirroring the on-disk relative path into the notee tree.  The picked
-  /// folder's own basename becomes the top-level segment so the full subtree
-  /// structure is preserved.
+  /// mirroring the on-disk relative path into the notee tree.  Linked local
+  /// documents are imported alongside, preserving their relative location.
   static Future<void> pickAndImportFolder(
     BuildContext context,
     String folderPath,
@@ -358,6 +570,7 @@ class RecordImport {
           ? (folderPath.endsWith('/') ? '$folderPath$rootName/' : '$folderPath/$rootName/')
           : folderPath;
 
+      final seeds = <String, (String, String)>{};
       for (final file in mdFiles) {
         final relPath = p.relative(file.path, from: rootDir.path);
         final relDir = p.dirname(relPath);
@@ -369,20 +582,17 @@ class RecordImport {
           if (!noteeFolder.endsWith('/')) noteeFolder += '/';
         }
 
-        await Repository.get().recordTree.createFolder(noteeFolder);
+        seeds[file.path] = (noteeFolder, rootDir.path);
+      }
 
-        final bytes = await file.readAsBytes();
-        final content = await DocumentIO.decodeBytes(bytes);
-        if (content.isEmpty) {
+      final items = await _preprocess(seeds: seeds);
+      for (final item in items) {
+        try {
+          await _savePreprocessedItem(item);
+          importCount++;
+        } catch (_) {
           skipped++;
-          continue;
         }
-
-        final delta = markdownToDocument(
-          content, markdownParsers: const [CustomMarkdownCodeBlockParser()],
-        );
-        await saveImportDocument(noteeFolder, delta, sourceDir: p.dirname(file.path));
-        importCount++;
       }
 
       if (context.mounted) {
@@ -451,7 +661,7 @@ class RecordExport {
     try {
       await targetDir.create(recursive: true);
     } catch (e) {
-      AppLogger.e('Export', "[RecordExport] cannot create target dir $resolvedTarget: $e");
+      AppLogger.e('Export', "cannot create target dir $resolvedTarget: $e");
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${l10n.exportFailed}: $e')),
@@ -484,14 +694,16 @@ class _ExportProgressDialog extends StatefulWidget {
 }
 
 class _ExportProgressDialogState extends State<_ExportProgressDialog> {
-  final Set<String> _writtenFiles = {};
-
   bool _finished = false;
   bool _cancelled = false;
   int _done = 0;
   int _success = 0;
   int _skipped = 0;
   TreeContentFile? _current;
+
+  /// Precomputed export .md path for each record uuid, so record:// links
+  /// can be rewritten to real relative paths during markdown export.
+  final Map<String, String> _uuidToMdPath = {};
 
   @override
   void initState() {
@@ -500,6 +712,10 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
   }
 
   Future<void> _run() async {
+    // Pre-compute export paths for every record (handles filename collisions)
+    // so record://uuid hrefs can be resolved to real relative paths.
+    _precomputeExportPaths();
+
     for (final file in widget.files) {
       if (_cancelled) break;
       setState(() => _current = file);
@@ -531,25 +747,55 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
       }
 
       try {
-        // Each record gets a flat assets/ sub-folder inside its own export
-        // directory — collisions are impossible across records this way.
         final exportDir = _recordExportDir(file);
-        final exportAssetDir = p.join(exportDir, 'assets');
         final markdown = DocumentIO.bodyToMarkdown(
           plain,
           assetUuid: file.uuid,
-          exportAssetDir: exportAssetDir,
+              exportAssetDir: p.join(exportDir, 'assets'),
+              hrefRewriter: (href) => _rewriteRecordLink(href, exportDir),
         ) ?? plain;
         await _writeFile(file, markdown);
         _success++;
       } catch (e) {
-        AppLogger.e('Export', "[RecordExport] failed to export ${file.path}${file.name}: $e");
+        AppLogger.e('Export', "failed to export ${file.path}${file.name}: $e");
         _skipped++;
       }
       _advance();
     }
 
     if (mounted) setState(() => _finished = true);
+  }
+
+  /// Pre-compute the deduplicated .md export path for every record and store
+  /// it in [_uuidToMdPath].  Runs before the export loop so href rewriting and
+  /// file writing share the same resolved paths.
+  void _precomputeExportPaths() {
+    final written = <String>{};
+    for (final file in widget.files) {
+      String candidate;
+      int n = 0;
+      do {
+        final suffix = n == 0 ? '' : '$n';
+        candidate = p.join(
+          _recordExportDir(file),
+          '${_sanitizeSegment(file.name.isEmpty ? 'untitled' : file.name)}$suffix.md',
+        );
+        n++;
+      } while (written.contains(candidate.toLowerCase()));
+      written.add(candidate.toLowerCase());
+      _uuidToMdPath[file.uuid] = candidate;
+    }
+  }
+
+  /// Rewrite a `record://<uuid>` href to a relative path from [fromDir] to
+  /// the target record's exported .md file.  Returns null for non-record
+  /// links or when the target uuid isn't part of this export batch.
+  String? _rewriteRecordLink(String href, String fromDir) {
+    if (!href.startsWith(RecordImport.recordLinkPrefix)) return null;
+    final targetUuid = href.substring(RecordImport.recordLinkPrefix.length);
+    final targetMdPath = _uuidToMdPath[targetUuid];
+    if (targetMdPath == null) return null;
+    return p.relative(targetMdPath, from: fromDir).replaceAll('\\', '/');
   }
 
   void _advance() {
@@ -573,16 +819,15 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
     try {
       return await file.readAsString();
     } catch (e) {
-      AppLogger.e('Export', "[RecordExport] read failed uuid=${record.uuid}: $e");
+      AppLogger.e('Export', "read failed uuid=${record.uuid}: $e");
       return null;
     }
   }
 
   Future<void> _writeFile(TreeContentFile file, String markdown) async {
-    final out = File(_mdCandidate(file));
+    final out = File(_uuidToMdPath[file.uuid]!);
     await out.parent.create(recursive: true);
     await out.writeAsString(markdown);
-    _writtenFiles.add(out.path.toLowerCase());
   }
 
   /// The directory this record exports to (also the parent of its assets/).
@@ -592,18 +837,6 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
     final relative = root.isEmpty ? fp : fp.substring(root.length);
     final segments = relative.split('/').where((s) => s.isNotEmpty).map(_sanitizeSegment).toList();
     return p.joinAll([widget.targetDir, ...segments]);
-  }
-
-  /// Deduplicated .md candidate path — ensures we never overwrite.
-  String _mdCandidate(TreeContentFile file) {
-    String candidate;
-    int n = 0;
-    do {
-      final suffix = n == 0 ? '' : '$n';
-      candidate = p.join(_recordExportDir(file), '${_sanitizeSegment(file.name.isEmpty ? 'untitled' : file.name)}$suffix.md');
-      n++;
-    } while (_writtenFiles.contains(candidate.toLowerCase()));
-    return candidate;
   }
 
   static String _strip(String s) {
