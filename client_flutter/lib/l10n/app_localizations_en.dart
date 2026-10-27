@@ -398,6 +398,47 @@ class AppLocalizationsEn extends AppLocalizations {
   String get operates => 'Logs';
 
   @override
+  String get tombstoneManager => 'Recycle Bin Cleanup';
+
+  @override
+  String get tombstoneManagerDesc =>
+      'Purge soft-deleted records and orphaned assets';
+
+  @override
+  String get tombstoneTitle => 'Recycle Bin Statistics';
+
+  @override
+  String get tombstoneTotalRecords => 'Active records';
+
+  @override
+  String get tombstoneDeletedRecords => 'Soft-deleted records';
+
+  @override
+  String get tombstoneDeletedAssets => 'Orphaned assets';
+
+  @override
+  String get tombstoneMaxVersion => 'Max tombstone version';
+
+  @override
+  String get tombstonePurgedVersion => 'Purged version';
+
+  @override
+  String get tombstonePurge => 'Purge Now';
+
+  @override
+  String tombstonePurgeConfirm(Object count) {
+    return 'Permanently delete $count soft-deleted records and all orphaned assets? This action cannot be undone.';
+  }
+
+  @override
+  String tombstonePurgeDone(Object assets, Object count) {
+    return 'Purged $count records and $assets orphaned assets';
+  }
+
+  @override
+  String get tombstoneEmpty => 'No soft-deleted records on the server';
+
+  @override
   String emptyInputCheck(Object input) {
     return 'Please input $input';
   }
@@ -406,10 +447,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get importDocument => 'Import Documents';
 
   @override
-  String get importSuccess => 'Import Note Success';
+  String get importSuccess => 'Import record success';
 
   @override
-  String get importFailed => 'Import Note Failed';
+  String get importFailed => 'Import record failed';
 
   @override
   String get importFolder => 'Import Folder';

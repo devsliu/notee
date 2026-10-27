@@ -824,6 +824,78 @@ abstract class AppLocalizations {
   /// **'操作日志'**
   String get operates;
 
+  /// No description provided for @tombstoneManager.
+  ///
+  /// In zh, this message translates to:
+  /// **'回收站清理'**
+  String get tombstoneManager;
+
+  /// No description provided for @tombstoneManagerDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'清理服务端软删除笔记和孤立附件'**
+  String get tombstoneManagerDesc;
+
+  /// No description provided for @tombstoneTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'回收站统计'**
+  String get tombstoneTitle;
+
+  /// No description provided for @tombstoneTotalRecords.
+  ///
+  /// In zh, this message translates to:
+  /// **'活跃记录'**
+  String get tombstoneTotalRecords;
+
+  /// No description provided for @tombstoneDeletedRecords.
+  ///
+  /// In zh, this message translates to:
+  /// **'软删除记录'**
+  String get tombstoneDeletedRecords;
+
+  /// No description provided for @tombstoneDeletedAssets.
+  ///
+  /// In zh, this message translates to:
+  /// **'孤立附件'**
+  String get tombstoneDeletedAssets;
+
+  /// No description provided for @tombstoneMaxVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'全表最大版本'**
+  String get tombstoneMaxVersion;
+
+  /// No description provided for @tombstonePurgedVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'墓碑版本号'**
+  String get tombstonePurgedVersion;
+
+  /// No description provided for @tombstonePurge.
+  ///
+  /// In zh, this message translates to:
+  /// **'立即清理'**
+  String get tombstonePurge;
+
+  /// No description provided for @tombstonePurgeConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'将永久删除 {count} 条软删除笔记和所有孤立附件，操作不可恢复。'**
+  String tombstonePurgeConfirm(Object count);
+
+  /// No description provided for @tombstonePurgeDone.
+  ///
+  /// In zh, this message translates to:
+  /// **'已清理 {count} 条笔记和 {assets} 个孤立附件'**
+  String tombstonePurgeDone(Object assets, Object count);
+
+  /// No description provided for @tombstoneEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务端暂无软删除笔记'**
+  String get tombstoneEmpty;
+
   /// No description provided for @emptyInputCheck.
   ///
   /// In zh, this message translates to:

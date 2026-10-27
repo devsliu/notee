@@ -439,6 +439,38 @@ class HttpApi {
       return ApiResult(resp.statusCode, rawBody, null, rawData: rawBody);
     });
   }
+
+  /// GET /record/tombstone_stats — returns counts and version numbers of the
+  /// current user's soft-deleted records.
+  static Future<ApiResult<TombstoneStats>> getTombstoneStats() async {
+    return _apiWrapper("tombstoneStats", (client, baseUrl) async {
+      final req = http.Request('GET', Uri.parse('$baseUrl/record/tombstone_stats'));
+      await setTokenToRequest(req);
+      final resp = await Response.fromStream(await client.send(req).timeout(_receiveTimeout));
+      final rawBody = utf8.decode(resp.bodyBytes);
+      if (resp.statusCode == 200) {
+        return ApiResult.success(TombstoneStats.fromJson(jsonDecode(rawBody)), rawData: rawBody);
+      }
+      return ApiResult(resp.statusCode, rawBody, null, rawData: rawBody);
+    });
+  }
+
+  /// POST /record/tombstone_purge — physically deletes every soft-deleted record
+  /// (DB row + file + asset + share) and advances purgedVersion.
+  /// Returns the number purged and the new purgedVersion.
+  static Future<ApiResult<TombstonePurgeResult>> purgeTombstones() async {
+    return _apiWrapper("purgeTombstones", (client, baseUrl) async {
+      final req = http.Request('POST', Uri.parse('$baseUrl/record/tombstone_purge'));
+      await setTokenToRequest(req);
+      req.headers['Content-Type'] = 'application/json';
+      final resp = await Response.fromStream(await client.send(req).timeout(_receiveTimeout));
+      final rawBody = utf8.decode(resp.bodyBytes);
+      if (resp.statusCode == 200) {
+        return ApiResult.success(TombstonePurgeResult.fromJson(jsonDecode(rawBody)), rawData: rawBody);
+      }
+      return ApiResult(resp.statusCode, rawBody, null, rawData: rawBody);
+    });
+  }
 }
 
 class LoginResult {
@@ -571,6 +603,48 @@ class APIStat {
 
   factory APIStat.fromJson(Map<String, dynamic> json) {
     return APIStat(json['apiName'], json['count'], json['lastCallTime']);
+  }
+}
+
+/// Response from GET /record/tombstone_stats.
+class TombstoneStats {
+  final int tombstoneCount;
+  final int tombstoneAssetCount;
+  final int maxVersion;
+  final int purgedVersion;
+  final int activeRecords;
+
+  TombstoneStats({
+    required this.tombstoneCount,
+    required this.tombstoneAssetCount,
+    required this.maxVersion,
+    required this.purgedVersion,
+    required this.activeRecords,
+  });
+
+  factory TombstoneStats.fromJson(Map<String, dynamic> json) {
+    return TombstoneStats(
+      tombstoneCount: json['tombstoneCount'] as int? ?? 0,
+      tombstoneAssetCount: json['tombstoneAssetCount'] as int? ?? 0,
+      maxVersion: json['maxVersion'] as int? ?? 0,
+      purgedVersion: json['purgedVersion'] as int? ?? 0,
+      activeRecords: json['activeRecords'] as int? ?? 0,
+    );
+  }
+}
+
+/// Response from POST /record/tombstone_purge.
+class TombstonePurgeResult {
+  final int purgedCount;
+  final int purgedVersion;
+
+  TombstonePurgeResult({required this.purgedCount, required this.purgedVersion});
+
+  factory TombstonePurgeResult.fromJson(Map<String, dynamic> json) {
+    return TombstonePurgeResult(
+      purgedCount: json['purgedCount'] as int? ?? 0,
+      purgedVersion: json['purgedVersion'] as int? ?? 0,
+    );
   }
 }
 

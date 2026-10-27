@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -495,4 +496,111 @@ func (db *DB) QueryRecordsByVersion(userId int64, version, limit int64) ([]*Reco
 		records = []*Record{}
 	}
 	return records, ResultSuccess
+}
+
+// TombstoneStats is the response body for the tombstone stats endpoint.
+type TombstoneStats struct {
+	TombstoneCount      int64 `json:"tombstoneCount"`
+	TombstoneAssetCount int64 `json:"tombstoneAssetCount"`
+	MaxVersion          int64 `json:"maxVersion"`
+	PurgedVersion       int64 `json:"purgedVersion"`
+	ActiveRecords       int64 `json:"activeRecords"`
+}
+
+// GetTombstoneStats returns statistics about tombstones (soft-deleted records)
+// for the given user.  Asset count is the sum of asset filenames declared in
+// every tombstone's `assets` JSON array.  A second query fetches the purgedVersion
+// from the user table so the client can tell whether any auto-purge has already run.
+func (db *DB) GetTombstoneStats(userId int64) (TombstoneStats, ResultCode) {
+	tableName := fmt.Sprintf("record_%d", userId)
+
+	var total int64
+	if err := db.conn.QueryRow("SELECT COUNT(*) FROM " + tableName + " WHERE deleteAt = 0").Scan(&total); err != nil {
+		return TombstoneStats{}, ResultErrorDatabase.with(err.Error())
+	}
+
+	var purgedVersion int64
+	if err := db.conn.QueryRow("SELECT purgedVersion FROM user WHERE id=?", userId).Scan(&purgedVersion); err != nil {
+		return TombstoneStats{}, ResultErrorDatabase.with(err.Error())
+	}
+
+	var tombstoneCount int64
+	var assetCount int64
+	rows, err := db.conn.Query("SELECT assets FROM " + tableName + " WHERE deleteAt > 0")
+	if err != nil {
+		return TombstoneStats{}, ResultErrorDatabase.with(err.Error())
+	}
+	for rows.Next() {
+		var assets string
+		if err := rows.Scan(&assets); err != nil {
+			rows.Close()
+			return TombstoneStats{}, ResultErrorDatabase.with(err.Error())
+		}
+		tombstoneCount++
+		if assets != "" {
+			var names []string
+			if err := json.Unmarshal([]byte(assets), &names); err == nil {
+				assetCount += int64(len(names))
+			}
+		}
+	}
+	rows.Close()
+
+	var maxVersion sql.NullInt64
+	if err := db.conn.QueryRow("SELECT MAX(version) FROM " + tableName).Scan(&maxVersion); err != nil {
+		return TombstoneStats{}, ResultErrorDatabase.with(err.Error())
+	}
+
+	stats := TombstoneStats{
+		TombstoneCount:      tombstoneCount,
+		TombstoneAssetCount: assetCount,
+		PurgedVersion:       purgedVersion,
+		ActiveRecords:       total,
+	}
+	if maxVersion.Valid {
+		stats.MaxVersion = maxVersion.Int64
+	}
+	return stats, ResultSuccess
+}
+
+// PurgeAllTombstones physically deletes every soft-deleted record (deleteAt > 0)
+// for the given user.  The caller is responsible for deleting the corresponding
+// record files and asset directories from disk.  Updates user.purgedVersion to
+// max(purgedVersion, maxTombstoneVersion) so clients with version < newPurgedVersion
+// are forced into a full sync.
+func (db *DB) PurgeAllTombstones(userId int64) (uuids []string, newPurgedVersion int64, err error) {
+	tableName := fmt.Sprintf("record_%d", userId)
+	err = db.ExecInTransaction(func(tx *sql.Tx) error {
+		rows, qErr := tx.Query("SELECT uuid, version FROM " + tableName + " WHERE deleteAt > 0")
+		if qErr != nil {
+			return qErr
+		}
+		var maxVersion int64
+		for rows.Next() {
+			var u string
+			var v int64
+			if scanErr := rows.Scan(&u, &v); scanErr != nil {
+				rows.Close()
+				return scanErr
+			}
+			uuids = append(uuids, u)
+			if v > maxVersion {
+				maxVersion = v
+			}
+		}
+		rows.Close()
+
+		if maxVersion == 0 {
+			return nil
+		}
+
+		if _, err := tx.Exec("DELETE FROM " + tableName + " WHERE deleteAt > 0"); err != nil {
+			return err
+		}
+		return tx.QueryRow(
+			"UPDATE user SET purgedVersion = CASE WHEN purgedVersion >= ? THEN purgedVersion ELSE ? END WHERE id = ? RETURNING purgedVersion",
+			maxVersion, maxVersion, userId,
+		).Scan(&newPurgedVersion)
+	})
+	return uuids, newPurgedVersion, err
 }

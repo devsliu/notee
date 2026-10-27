@@ -567,3 +567,45 @@ func (s *Server) clearRecordsHandler(w http.ResponseWriter, r *http.Request, use
 	user.PurgedVersion.Store(purgedVersion)
 	w.WriteHeader(http.StatusOK)
 }
+
+// tombstoneStatsHandler returns counts of tombstones (soft-deleted records),
+// total assets referenced by them, max tombstone version, current purgedVersion,
+// and total records for the current user.
+func (s *Server) tombstoneStatsHandler(w http.ResponseWriter, r *http.Request, user *CacheUser, token string) {
+	stats, result := s.db.GetTombstoneStats(user.UserID)
+	if result != ResultSuccess {
+		http.Error(w, result.Message, result.Value)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(stats)
+}
+
+// purgeTombstonesHandler physically deletes every soft-deleted record for the
+// current user: DB row + record file + asset directory + share link.  Updates
+// user.purgedVersion to max(purgedVersion, maxTombstoneVersion) so clients with
+// version below that must do a full sync on next pull.  Returns the number purged
+// and the new purgedVersion.
+func (s *Server) purgeTombstonesHandler(w http.ResponseWriter, r *http.Request, user *CacheUser, token string) {
+	uuids, newPurgedVersion, err := s.db.PurgeAllTombstones(user.UserID)
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	if len(uuids) > 0 {
+		s.purgeRecordFiles(user.UserID, uuids)
+		for _, u := range uuids {
+			s.deleteSharesByRecord(user.UserID, u)
+		}
+		if newPurgedVersion > user.PurgedVersion.Load() {
+			user.PurgedVersion.Store(newPurgedVersion)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"purgedCount":    len(uuids),
+		"purgedVersion":  newPurgedVersion,
+	})
+}
