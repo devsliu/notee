@@ -202,18 +202,20 @@ const imageSectionStr = "image"
 // cleanupOrphanAssets removes asset files that are no longer referenced by the
 // record's current content header. It reads the committed record file to get
 // the expected asset list, then deletes any other file in the per-record asset
-// directory. Failures are ignored — orphaned files are harmless.
+// directory. When the record has no assets at all, the entire directory is
+// removed. Failures are ignored — orphaned files are harmless.
 func (s *Server) cleanupOrphanAssets(userId int64, recordUuid string) {
 	recordPath := s.getRecordAbsPath(userId, recordUuid)
 	expected := parseAssetHeader(recordPath)
-	if expected == nil {
-		expected = []string{}
+	dir := s.getAssetAbsDir(userId, recordUuid)
+	if len(expected) == 0 {
+		os.RemoveAll(dir)
+		return
 	}
 	expectedSet := make(map[string]bool, len(expected))
 	for _, name := range expected {
 		expectedSet[name] = true
 	}
-	dir := s.getAssetAbsDir(userId, recordUuid)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -605,7 +607,7 @@ func (s *Server) purgeTombstonesHandler(w http.ResponseWriter, r *http.Request, 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"purgedCount":    len(uuids),
-		"purgedVersion":  newPurgedVersion,
+		"purgedCount":   len(uuids),
+		"purgedVersion": newPurgedVersion,
 	})
 }
