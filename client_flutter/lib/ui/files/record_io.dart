@@ -414,7 +414,7 @@ class RecordImport {
       for (final node in DocumentImage.collectImageNodes(document)) {
         final url = node.attributes[ImageBlockKeys.url] as String?;
         if (url == null || url.isEmpty) continue;
-        if (isRemoteUrl(url) || isNoteeAssetUrl(url)) continue;
+        if (isRemoteUrl(url) || isRecordAssetUrl(url)) continue;
 
         final split = _splitHref(url);
         if (split == null) continue;

@@ -890,12 +890,6 @@ abstract class AppLocalizations {
   /// **'已清理 {count} 条笔记和 {assets} 个孤立附件'**
   String tombstonePurgeDone(Object assets, Object count);
 
-  /// No description provided for @tombstoneEmpty.
-  ///
-  /// In zh, this message translates to:
-  /// **'服务端暂无软删除笔记'**
-  String get tombstoneEmpty;
-
   /// No description provided for @emptyInputCheck.
   ///
   /// In zh, this message translates to:

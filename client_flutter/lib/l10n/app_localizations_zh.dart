@@ -432,9 +432,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get tombstoneEmpty => '服务端暂无软删除笔记';
-
-  @override
   String emptyInputCheck(Object input) {
     return '请输入$input';
   }

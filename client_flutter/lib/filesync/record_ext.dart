@@ -216,20 +216,7 @@ class RecordSections {
       final peekLen = totalLen < 4096 ? totalLen : 4096;
       final peek = raf.readSync(peekLen);
       raf.closeSync();
-      if (peek.length < 2 || peek[0] != 0x5B || peek[1] != 0x5B) return null;
-      final closeIdx = _indexOfDoubleClose(peek);
-      if (closeIdx <= 1) return null;
-      final headerEnd = closeIdx + 1;
-      final headerStr = utf8.decode(peek.sublist(2, closeIdx - 1));
-      final parsed = _parseHeader(headerStr);
-      if (parsed.isEmpty) return null;
-      final sections = <RecordSection>[];
-      int cur = headerEnd;
-      for (final (kind, len) in parsed) {
-        sections.add(RecordSection(kind, cur, len));
-        cur += len;
-      }
-      return HeaderParse(sections, headerEnd);
+      return _peekHeaderBytes(peek);
     } catch (_) {
       return null;
     }
@@ -369,7 +356,7 @@ bool isRemoteUrl(String url) {
 
 /// Returns true when [url] is a managed notee asset reference of the form
 /// `assets://{filename}`.
-bool isNoteeAssetUrl(String url) => url.trim().startsWith(assetUrlPrefix);
+bool isRecordAssetUrl(String url) => url.trim().startsWith(assetUrlPrefix);
 
 /// Build a full managed asset URL: `assets://{filename}`.
 String buildAssetUrl(String filename) => '$assetUrlPrefix$filename';

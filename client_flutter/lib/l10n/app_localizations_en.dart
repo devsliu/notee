@@ -436,9 +436,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get tombstoneEmpty => 'No soft-deleted records on the server';
-
-  @override
   String emptyInputCheck(Object input) {
     return 'Please input $input';
   }
