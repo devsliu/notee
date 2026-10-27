@@ -134,6 +134,15 @@
       "skipped": {}
     }
   },
+  "importDiscovering": "正在发现关联文档...",
+  "importingProgress": "正在导入 ({done}/{total})",
+  "@importingProgress": {
+    "placeholders": {
+      "done": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "cancelled": "已取消",
   "collapseAll": "收起所有文件夹",
   "undo": "撤销",
   "redo": "重做",

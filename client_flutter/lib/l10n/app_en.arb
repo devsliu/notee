@@ -134,6 +134,15 @@
       "skipped": {}
     }
   },
+  "importDiscovering": "Discovering linked documents...",
+  "importingProgress": "Importing ({done}/{total})",
+  "@importingProgress": {
+    "placeholders": {
+      "done": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "cancelled": "Cancelled",
   "collapseAll": "Collapse All Folders",
   "undo": "Undo",
   "redo": "Redo",

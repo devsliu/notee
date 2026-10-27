@@ -423,6 +423,17 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get importDiscovering => 'Discovering linked documents...';
+
+  @override
+  String importingProgress(int done, int total) {
+    return 'Importing ($done/$total)';
+  }
+
+  @override
+  String get cancelled => 'Cancelled';
+
+  @override
   String get collapseAll => 'Collapse All Folders';
 
   @override

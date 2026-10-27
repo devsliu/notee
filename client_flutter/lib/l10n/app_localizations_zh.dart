@@ -420,6 +420,17 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get importDiscovering => '正在发现关联文档...';
+
+  @override
+  String importingProgress(int done, int total) {
+    return '正在导入 ($done/$total)';
+  }
+
+  @override
+  String get cancelled => '已取消';
+
+  @override
   String get collapseAll => '收起所有文件夹';
 
   @override

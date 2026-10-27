@@ -720,10 +720,10 @@ class _ImportProgressDialogState extends State<_ImportProgressDialog> {
     return PopScope(
       canPop: _finished,
       child: AlertDialog(
-        title: const Text('Import Notes'),
+        title: Text(l10n.importDocument),
         content: SizedBox(
           width: math.min(400, media.size.width * 0.85),
-          height: math.min(200, media.size.height * 0.8),
+          height: math.min(120, media.size.height * 0.8),
           child: _buildContent(theme, inPreprocess),
         ),
         actions: _buildActions(),
@@ -759,7 +759,7 @@ class _ImportProgressDialogState extends State<_ImportProgressDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          inPreprocess ? 'Discovering linked documents...' : 'Importing ($_done/$_total)',
+          inPreprocess ? l10n.importDiscovering : l10n.importingProgress(_done, _total),
           style: const TextStyle(fontSize: 13),
         ),
         const SizedBox(height: 10),
@@ -774,7 +774,7 @@ class _ImportProgressDialogState extends State<_ImportProgressDialog> {
           ),
         if (_cancelled) ...[
           const SizedBox(height: 8),
-          const Text('Cancelled', style: TextStyle(fontSize: 12, color: Colors.red)),
+          Text(l10n.cancelled, style: TextStyle(fontSize: 12, color: Colors.red)),
         ],
       ],
     );
@@ -1040,7 +1040,7 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
         title: Text(l10n.exportMd),
         content: SizedBox(
           width: math.min(400, media.size.width * 0.85),
-          height: math.min(200, media.size.height * 0.8),
+          height: math.min(120, media.size.height * 0.8),
           child: _buildContent(theme, total),
         ),
         actions: _buildActions(),

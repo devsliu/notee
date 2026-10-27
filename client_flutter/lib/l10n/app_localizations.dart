@@ -866,6 +866,24 @@ abstract class AppLocalizations {
   /// **'导入完成：成功 {imported} 个，跳过 {skipped} 个'**
   String importCompleted(Object imported, Object skipped);
 
+  /// No description provided for @importDiscovering.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在发现关联文档...'**
+  String get importDiscovering;
+
+  /// No description provided for @importingProgress.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在导入 ({done}/{total})'**
+  String importingProgress(int done, int total);
+
+  /// No description provided for @cancelled.
+  ///
+  /// In zh, this message translates to:
+  /// **'已取消'**
+  String get cancelled;
+
   /// No description provided for @collapseAll.
   ///
   /// In zh, this message translates to:
