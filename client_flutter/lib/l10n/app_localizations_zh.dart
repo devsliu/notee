@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -565,7 +566,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get metaConflict => '元数据冲突';
 
   @override
-  String get recordContentUnchangedMetaConflict => '笔记内容未改变, 仅元数据冲突. 请选择保留哪一侧的修改.';
+  String get recordContentUnchangedMetaConflict =>
+      '笔记内容未改变, 仅元数据冲突. 请选择保留哪一侧的修改.';
 
   @override
   String get conflictRemoteVersion => '远端版本';
