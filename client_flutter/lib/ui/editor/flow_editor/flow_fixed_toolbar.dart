@@ -410,18 +410,29 @@ void handleInsertImage({
   Future.microtask(() async {
     if (isRemoteUrl(src)) {
       await editorState.insertImageNode(src);
-      return;
+    } else {
+      try {
+        final destDir = Directory(destPath).parent;
+        if (!destDir.existsSync()) destDir.createSync(recursive: true);
+        File(src).copySync(destPath);
+      } catch (e) {
+        AppLogger.e('Editor', "[handleInsertImage] copy asset failed: $e");
+        return;
+      }
+      await editorState.insertImageNode(relativeUrl);
     }
 
-    try {
-      final destDir = Directory(destPath).parent;
-      if (!destDir.existsSync()) destDir.createSync(recursive: true);
-      File(src).copySync(destPath);
-    } catch (e) {
-      AppLogger.e('Editor', "[handleInsertImage] copy asset failed: $e");
-      return;
+    // insertImageNode lands the selection on the image's next path, which
+    // is either out of range or still points to a non-delta node.  Append
+    // a paragraph after the image and move the caret there so typing works
+    // immediately after inserting an image.
+    final sel = editorState.selection;
+    if (sel != null && sel.isCollapsed) {
+      final txn = editorState.transaction;
+      txn
+        ..insertNode(sel.end.path, paragraphNode())
+        ..afterSelection = Selection.collapsed(Position(path: sel.end.path));
+      await editorState.apply(txn);
     }
-
-    await editorState.insertImageNode(relativeUrl);
   });
 }

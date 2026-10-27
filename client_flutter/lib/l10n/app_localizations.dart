@@ -827,7 +827,7 @@ abstract class AppLocalizations {
   /// No description provided for @tombstoneManager.
   ///
   /// In zh, this message translates to:
-  /// **'服务单墓碑数据清理'**
+  /// **'服务器墓碑数据清理'**
   String get tombstoneManager;
 
   /// No description provided for @tombstoneManagerDesc.
