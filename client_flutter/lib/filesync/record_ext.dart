@@ -13,6 +13,15 @@ import 'table_record.dart';
 // Record path utilities — "slash-prefixed and slash-suffixed" folder paths
 // ============================================================================
 
+/// URL scheme for intra-note record links. Import rewrites local-doc hrefs to
+/// `record://<uuid>`, export restores them to real relative paths, and the
+/// editor intercepts taps to open the target note.
+const String recordLinkPrefix = 'record://';
+
+/// URL scheme for managed notee assets (images). Import writes asset URLs as
+/// `assets://{filename}`, and fileStore resolves them to the physical file.
+const String assetUrlPrefix = 'assets://';
+
 /// Pure functions for the record tree's folder path convention: every folder
 /// path starts with `/` and ends with `/` (e.g. `/work/flutter/`), the root
 /// is `/`.  These depend on no state.
@@ -360,16 +369,15 @@ bool isRemoteUrl(String url) {
 
 /// Returns true when [url] is a managed notee asset reference of the form
 /// `assets://{filename}`.
-bool isNoteeAssetUrl(String url) => url.trim().startsWith('assets://');
+bool isNoteeAssetUrl(String url) => url.trim().startsWith(assetUrlPrefix);
 
 /// Build a full managed asset URL: `assets://{filename}`.
-String buildAssetUrl(String filename) => 'assets://$filename';
+String buildAssetUrl(String filename) => '$assetUrlPrefix$filename';
 
 /// Extract the bare filename from a managed asset URL like `assets://foo.png`.
 /// Returns null when [url] isn't a notee asset URL.
 String? extractAssetFilename(String url) {
-  const prefix = 'assets://';
-  return url.startsWith(prefix) ? url.substring(prefix.length) : null;
+  return url.startsWith(assetUrlPrefix) ? url.substring(assetUrlPrefix.length) : null;
 }
 
 // ============================================================================

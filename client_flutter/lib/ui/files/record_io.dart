@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:appflowy_editor/appflowy_editor.dart';
@@ -237,21 +238,31 @@ class DocumentIO {
 // Part 3 — Import business glue (Repository + FileStore + FilePicker)
 // ============================================================================
 
+/// Progress callback for import: current file path being processed (or null),
+/// preprocessProgress is 0..1, done/success/skipped count saved so far.
+typedef RecordImportProgressCallback = void Function({
+  String? currentPath,
+  double preprocessProgress,
+  int done,
+  int success,
+  int skipped,
+  int total,
+});
+
 /// Internal: a single document queued for import after preprocessing.
 class _PreImportItem {
   final String uuid;
   final String noteeFolder;
+  final String originalPath;
 
   String cacheFile = '';
   final List<(String name, String srcPath)> assets = [];
   bool cached = false;
 
-  _PreImportItem({required this.uuid, required this.noteeFolder});
+  _PreImportItem({required this.uuid, required this.noteeFolder, required this.originalPath});
 }
 
 class RecordImport {
-  static const String recordLinkPrefix = 'record://';
-
   /// Returns true if [href] points at a local `.md` / `.txt` file (relative
   /// path, no network scheme).  Used during import preprocessing to discover
   /// linked documents that must also be imported.
@@ -324,15 +335,15 @@ class RecordImport {
     // absPath -> baseDir.  Seeds get their own; linked docs inherit parent's.
     final baseDirMap = <String, String>{};
 
-    void enqueue(String absPath, String uuid, String noteeFolder, String baseDir) {
+    void enqueue(String absPath, String noteeFolder, String baseDir) {
       if (items.containsKey(absPath)) return;
-      items[absPath] = _PreImportItem(uuid: uuid, noteeFolder: noteeFolder);
+      items[absPath] = _PreImportItem(uuid: const Uuid().v4(), noteeFolder: noteeFolder, originalPath: absPath);
       baseDirMap[absPath] = baseDir;
       queue.add(absPath);
     }
 
     for (final entry in seeds.entries) {
-      enqueue(entry.key, const Uuid().v4(), entry.value.$1, entry.value.$2);
+      enqueue(entry.key, entry.value.$1, entry.value.$2);
     }
 
     final cacheDir = Directory(
@@ -380,7 +391,7 @@ class RecordImport {
             linkedFolder = item.noteeFolder;
           }
         }
-        enqueue(linkedAbs, const Uuid().v4(), linkedFolder, baseDir);
+        enqueue(linkedAbs, linkedFolder, baseDir);
       }
 
       // Rewrite this doc's local hrefs using the naming map.
@@ -476,6 +487,60 @@ class RecordImport {
     }
   }
 
+  // ---- Instance API ----
+
+  final Map<String, (String folder, String baseDir)> seeds;
+  RecordImport({required this.seeds});
+
+  Future<void> run({RecordImportProgressCallback? onProgress, bool Function()? isCancelled}) async {
+    int success = 0;
+    int skipped = 0;
+
+    onProgress?.call(currentPath: null, preprocessProgress: 0.0, done: 0, success: 0, skipped: 0, total: 0);
+
+    final items = await _preprocess(seeds: seeds);
+    final total = items.length;
+
+    onProgress?.call(currentPath: null, preprocessProgress: 1.0, done: 0, success: 0, skipped: 0, total: total);
+
+    for (int i = 0; i < items.length; i++) {
+      if (isCancelled != null && isCancelled()) break;
+      final item = items[i];
+      onProgress?.call(
+        currentPath: item.originalPath,
+        preprocessProgress: 1.0,
+        done: i,
+        success: success,
+        skipped: skipped,
+        total: total,
+      );
+      try {
+        await _savePreprocessedItem(item);
+        success++;
+      } catch (_) {
+        skipped++;
+      }
+      onProgress?.call(
+        currentPath: null,
+        preprocessProgress: 1.0,
+        done: i + 1,
+        success: success,
+        skipped: skipped,
+        total: total,
+      );
+    }
+
+    onProgress?.call(
+      currentPath: null,
+      preprocessProgress: 1.0,
+      done: total,
+      success: success,
+      skipped: skipped,
+      total: total,
+    );
+    if (success > 0) Repository.get().syncRecords(false);
+  }
+
   /// Pick one or more .md / .txt files and import each as a record.
   /// Linked local documents (relative `.md`/`.txt` hrefs) are imported too.
   static Future<void> pickAndImportDocuments(
@@ -483,7 +548,6 @@ class RecordImport {
     String folderPath,
   ) async {
     if (!context.mounted) return;
-    int importCount = 0;
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -503,25 +567,19 @@ class RecordImport {
       }
       if (seeds.isEmpty) return;
 
-      final items = await _preprocess(seeds: seeds);
-      for (final item in items) {
-        await _savePreprocessedItem(item);
-        importCount++;
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.importSuccess)),
-        );
-      }
+      if (!context.mounted) return;
+      await showDialog(
+        context: context,
+        useRootNavigator: false,
+        barrierDismissible: false,
+        builder: (_) => _ImportProgressDialog(seeds: seeds),
+      );
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("${l10n.importFailed} $e")),
         );
       }
-    } finally {
-      if (importCount > 0) Repository.get().syncRecords(false);
     }
   }
 
@@ -562,53 +620,175 @@ class RecordImport {
       return;
     }
 
-    int importCount = 0;
-    int skipped = 0;
-    try {
-      final rootName = p.basename(rootDir.path);
-      final targetRoot = rootName.isNotEmpty
-          ? (folderPath.endsWith('/') ? '$folderPath$rootName/' : '$folderPath/$rootName/')
-          : folderPath;
+    final rootName = p.basename(rootDir.path);
+    final targetRoot = rootName.isNotEmpty
+        ? (folderPath.endsWith('/') ? '$folderPath$rootName/' : '$folderPath/$rootName/')
+        : folderPath;
 
-      final seeds = <String, (String, String)>{};
-      for (final file in mdFiles) {
-        final relPath = p.relative(file.path, from: rootDir.path);
-        final relDir = p.dirname(relPath);
+    final seeds = <String, (String, String)>{};
+    for (final file in mdFiles) {
+      final relPath = p.relative(file.path, from: rootDir.path);
+      final relDir = p.dirname(relPath);
 
-        String noteeFolder = targetRoot;
-        if (relDir != '.' && relDir.isNotEmpty) {
-          final normalized = relDir.replaceAll('\\', '/');
-          noteeFolder = targetRoot + (targetRoot.endsWith('/') ? '' : '/') + normalized;
-          if (!noteeFolder.endsWith('/')) noteeFolder += '/';
-        }
-
-        seeds[file.path] = (noteeFolder, rootDir.path);
+      String noteeFolder = targetRoot;
+      if (relDir != '.' && relDir.isNotEmpty) {
+        final normalized = relDir.replaceAll('\\', '/');
+        noteeFolder = targetRoot + (targetRoot.endsWith('/') ? '' : '/') + normalized;
+        if (!noteeFolder.endsWith('/')) noteeFolder += '/';
       }
 
-      final items = await _preprocess(seeds: seeds);
-      for (final item in items) {
-        try {
-          await _savePreprocessedItem(item);
-          importCount++;
-        } catch (_) {
-          skipped++;
-        }
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.importCompleted(importCount, skipped))),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("${l10n.importFailed} $e")),
-        );
-      }
-    } finally {
-      if (importCount > 0) Repository.get().syncRecords(false);
+      seeds[file.path] = (noteeFolder, rootDir.path);
     }
+
+    if (!context.mounted) return;
+    await showDialog(
+      context: context,
+      useRootNavigator: false,
+      barrierDismissible: false,
+      builder: (_) => _ImportProgressDialog(seeds: seeds),
+    );
+  }
+}
+
+// ============================================================================
+// Part 3.5 — Import progress dialog
+// ============================================================================
+
+class _ImportProgressDialog extends StatefulWidget {
+  final Map<String, (String folder, String baseDir)> seeds;
+  const _ImportProgressDialog({required this.seeds});
+
+  @override
+  State<_ImportProgressDialog> createState() => _ImportProgressDialogState();
+}
+
+class _ImportProgressDialogState extends State<_ImportProgressDialog> {
+  bool _finished = false;
+  bool _cancelled = false;
+  int _done = 0;
+  int _success = 0;
+  int _skipped = 0;
+  int _total = 0;
+  double _preprocessProgress = 0.0;
+  String? _currentPath;
+  String _error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    Timer.run(() {
+      final importer = RecordImport(seeds: widget.seeds);
+      importer
+          .run(onProgress: _onProgress, isCancelled: () => _cancelled)
+          .then((_) {
+            if (!mounted) return;
+            setState(() => _finished = true);
+          })
+          .catchError((e) {
+            if (!mounted) return;
+            setState(() {
+              _error = '$e';
+              _finished = true;
+            });
+          });
+    });
+  }
+
+  void _onProgress({
+    String? currentPath,
+    double preprocessProgress = 0.0,
+    int done = 0,
+    int success = 0,
+    int skipped = 0,
+    int total = 0,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _currentPath = currentPath;
+      _preprocessProgress = preprocessProgress;
+      _done = done;
+      _success = success;
+      _skipped = skipped;
+      _total = total;
+    });
+  }
+
+  void _cancel() => setState(() => _cancelled = true);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final inPreprocess = _total == 0 || _preprocessProgress < 1.0;
+    final media = MediaQuery.of(context);
+
+    return PopScope(
+      canPop: _finished,
+      child: AlertDialog(
+        title: const Text('Import Notes'),
+        content: SizedBox(
+          width: math.min(400, media.size.width * 0.85),
+          height: math.min(200, media.size.height * 0.8),
+          child: _buildContent(theme, inPreprocess),
+        ),
+        actions: _buildActions(),
+      ),
+    );
+  }
+
+  Widget _buildContent(ThemeData theme, bool inPreprocess) {
+    if (_finished) {
+      if (_error.isNotEmpty) {
+        return Text("${l10n.importFailed}: $_error", style: TextStyle(color: theme.colorScheme.error));
+      }
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.check_circle_outline, color: Colors.green),
+              const SizedBox(width: 8),
+              Expanded(child: Text(l10n.importCompleted(_success, _skipped))),
+            ],
+          ),
+        ],
+      );
+    }
+
+    final saveProgress = _total == 0 ? 0.0 : _done / _total;
+    final overall = inPreprocess ? _preprocessProgress * 0.3 : 0.3 + saveProgress * 0.7;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          inPreprocess ? 'Discovering linked documents...' : 'Importing ($_done/$_total)',
+          style: const TextStyle(fontSize: 13),
+        ),
+        const SizedBox(height: 10),
+        LinearProgressIndicator(value: overall),
+        const SizedBox(height: 10),
+        if (_currentPath != null)
+          Text(
+            _currentPath!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+          ),
+        if (_cancelled) ...[
+          const SizedBox(height: 8),
+          const Text('Cancelled', style: TextStyle(fontSize: 12, color: Colors.red)),
+        ],
+      ],
+    );
+  }
+
+  List<Widget> _buildActions() {
+    if (_finished) {
+      return [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.close))];
+    }
+    return [TextButton(onPressed: _cancelled ? null : _cancel, child: Text(l10n.cancel))];
   }
 }
 
@@ -791,8 +971,8 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
   /// the target record's exported .md file.  Returns null for non-record
   /// links or when the target uuid isn't part of this export batch.
   String? _rewriteRecordLink(String href, String fromDir) {
-    if (!href.startsWith(RecordImport.recordLinkPrefix)) return null;
-    final targetUuid = href.substring(RecordImport.recordLinkPrefix.length);
+    if (!href.startsWith(recordLinkPrefix)) return null;
+    final targetUuid = href.substring(recordLinkPrefix.length);
     final targetMdPath = _uuidToMdPath[targetUuid];
     if (targetMdPath == null) return null;
     return p.relative(targetMdPath, from: fromDir).replaceAll('\\', '/');
@@ -856,12 +1036,17 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final total = widget.files.length;
+    final media = MediaQuery.of(context);
 
     return PopScope(
       canPop: _finished,
       child: AlertDialog(
         title: Text(l10n.exportMd),
-        content: SizedBox(width: 400, child: _buildContent(theme, total)),
+        content: SizedBox(
+          width: math.min(400, media.size.width * 0.85),
+          height: math.min(200, media.size.height * 0.8),
+          child: _buildContent(theme, total),
+        ),
         actions: _buildActions(),
       ),
     );
