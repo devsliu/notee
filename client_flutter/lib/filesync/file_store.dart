@@ -338,20 +338,22 @@ class FileStore {
   void moveFileToRecycler(String uuid) {
     final workFile = File(getWorkFile(uuid));
     final baseFile = File(getBaseFile(uuid));
+    bool fileChanged = false;
+    if (baseFile.existsSync()) {
+      try {
+        baseFile.deleteSync();
+        fileChanged = true;
+      } catch (e) {
+        AppLogger.e('FileStore', "[moveFileToRecycler] uuid=$uuid failed to delete stale base file: $e");
+      }
+    }
     if (workFile.existsSync()) {
       Utils.moveFile(workFile, File(getRecyclerFile(uuid)));
-      // Base is the stale synced baseline; delete it so it cannot be mistaken for live content.
-      if (baseFile.existsSync()) {
-        try {
-          baseFile.deleteSync();
-        } catch (e) {
-          AppLogger.e('FileStore', "[moveFileToRecycler] uuid=$uuid failed to delete stale base file: $e");
-        }
-      }
-      _fireChanged(uuid, ContentFileEventType.move);
-    } else if (baseFile.existsSync()) {
-      Utils.moveFile(baseFile, File(getRecyclerFile(uuid)));
-      _fireChanged(uuid, ContentFileEventType.move);
+      fileChanged = true;
+    }
+
+    if (fileChanged) {
+      _fireChanged(uuid, ContentFileEventType.delete);
     }
   }
 
@@ -368,7 +370,7 @@ class FileStore {
     final src = File(getWorkFile(uuid));
     if (!src.existsSync()) return;
     Utils.moveFile(src, File(getRecyclerFile(uuid)));
-    _fireChanged(uuid, ContentFileEventType.move);
+    _fireChanged(uuid, ContentFileEventType.delete);
   }
 
   /// Download base file. Determine whether download is needed by comparing server-side remoteFileVersion

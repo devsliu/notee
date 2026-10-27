@@ -244,6 +244,7 @@ class AppDatabase extends _$AppDatabase {
     required int createAt,
     required String tags,
     int fileDirty = 0,
+    int baseFileVersion = 0,
   }) async {
     return await into(localRecords).insertOnConflictUpdate(
       LocalRecordsCompanion.insert(
@@ -258,6 +259,7 @@ class AppDatabase extends _$AppDatabase {
         reminder: Value(reminder),
         tags: Value(tags),
         path: Value(path),
+        baseFileVersion: Value(baseFileVersion),
       ),
     );
   }

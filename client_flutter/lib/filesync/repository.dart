@@ -716,6 +716,7 @@ class Repository {
     try {
       await db.transaction(() async {
         for (final entry in okEntries) {
+          final hasFile = fileStore.isWorkFileExist(entry.uuid);
           await db.restoreRecord(
             uuid: entry.uuid,
             name: entry.name,
@@ -723,8 +724,9 @@ class Repository {
             locked: entry.locked,
             reminder: entry.reminder,
             tags: entry.tags,
-            fileEditAt: fileStore.isWorkFileExist(entry.uuid) ? time : 0,
-            fileDirty: fileStore.isWorkFileExist(entry.uuid) ? 1 : 0,
+            fileEditAt: hasFile ? time : 0,
+            fileDirty: hasFile ? 1 : 0,
+            baseFileVersion: 0,
             editAt: time,
             createAt: time,
           );
