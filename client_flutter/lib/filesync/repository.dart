@@ -15,6 +15,7 @@ import 'package:notee/filesync/sync_engine.dart' show SyncEngine, SyncState;
 import 'package:notee/filesync/user.dart';
 import 'package:notee/filesync/http_api.dart';
 import 'package:notee/utils/app_logger.dart';
+import 'package:notee/utils/utils.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -282,42 +283,18 @@ class Repository {
       await guestDb.close();
     }
     // Move attachment files (uuid-named, collisions mean same content → drop source)
-    const subDirs = [FileStore.baseFilesDirName, FileStore.workFilesDirName, FileStore.recyclerFilesDirName];
+    const subDirs = [
+      FileStore.baseFilesDirName,
+      FileStore.workFilesDirName,
+      FileStore.recyclerFilesDirName,
+      FileStore.assetsDirName,
+    ];
     for (final sub in subDirs) {
-      final src = Directory(join(guestDir.path, sub));
-      if (!src.existsSync()) continue;
-      final dst = join(fileStore!.rootDir, sub);
-      await for (final f in src.list()) {
-        if (f is! File) continue;
-        final fileName = f.path.split(Platform.pathSeparator).last;
-        final target = File(join(dst, fileName));
-        if (target.existsSync()) {
-          await f.delete();
-        } else {
-          await f.rename(target.path);
-        }
-      }
-    }
-    // Move assets: per-record dirs assets/{recordUuid}/{filename}
-    final guestAssets = Directory(join(guestDir.path, FileStore.assetsDirName));
-    if (guestAssets.existsSync()) {
-      await Directory(fileStore!.assetsDir).create(recursive: true);
-      await for (final uuidDir in guestAssets.list()) {
-        if (uuidDir is! Directory) continue;
-        final recordUuid = uuidDir.path.split(Platform.pathSeparator).last;
-        final dstDir = Directory(join(fileStore!.assetsDir, recordUuid));
-        await dstDir.create(recursive: true);
-        await for (final f in uuidDir.list()) {
-          if (f is! File) continue;
-          final fileName = f.path.split(Platform.pathSeparator).last;
-          final target = File(join(dstDir.path, fileName));
-          if (target.existsSync()) {
-            await f.delete();
-          } else {
-            await f.rename(target.path);
-          }
-        }
-      }
+      await Utils.moveFolder(
+        Directory(join(guestDir.path, sub)),
+        Directory(join(fileStore!.rootDir, sub)),
+        MoveConflictPolicy.skip,
+      );
     }
     try {
       await guestDir.delete(recursive: true);
