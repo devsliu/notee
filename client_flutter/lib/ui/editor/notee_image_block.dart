@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:appflowy_editor/appflowy_editor.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:notee/config/language_manager.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../../filesync/file_store.dart';
@@ -142,6 +144,38 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     _menuEntry = null;
   }
 
+  /// Best-effort local source file for saving. Returns null when the image
+  /// has not been downloaded yet (network URL without a cache file).
+  File? get _sourceLocalFile {
+    final cache = _resolved.cachePath;
+    if (cache.isNotEmpty && File(cache).existsSync()) return File(cache);
+    final src = _resolved.src;
+    if (src.isNotEmpty && !src.startsWith('http') && File(src).existsSync()) {
+      return File(src);
+    }
+    return null;
+  }
+
+  Future<void> _saveImage() async {
+    final source = _sourceLocalFile;
+    if (source == null) return;
+    final suggested = p.basename(source.path);
+    final destination = await FilePicker.platform.saveFile(
+      dialogTitle: l10n.save,
+      fileName: suggested,
+    );
+    if (destination == null || destination.isEmpty) return; // user cancelled
+    try {
+      await source.copy(destination);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.saveRecordFailed)),
+        );
+      }
+    }
+  }
+
   void _showImageMenu(Offset globalPosition) {
     _dismissMenu();
     if (!mounted) return;
@@ -149,6 +183,16 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     HapticFeedback.mediumImpact();
 
     final items = <List<ContextMenuItem>>[
+      [
+        ContextMenuItem(
+          getName: () => l10n.save,
+          isApplicable: (_) => _sourceLocalFile != null,
+          onPressed: (state) {
+            _dismissMenu();
+            unawaited(_saveImage());
+          },
+        ),
+      ],
       [
         ContextMenuItem(
           getName: () => l10n.delete,
