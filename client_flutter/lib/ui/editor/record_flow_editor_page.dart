@@ -133,13 +133,11 @@ class RecordFlowEditorPage extends BaseRecordEditPage {
 }
 
 class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseRecordEditPageState<T> {
-  EditorState editorState = EditorState.blank();
+  late final EditorState editorState;
   final FocusNode _focusNode = FocusNode();
-  EditorScrollController? editorScrollController;
+  late final EditorScrollController editorScrollController;
   Selection? _savedSelection;
   final recordTree = Repository.get().recordTree;
-
-  StreamSubscription<EditorTransactionValue>? _subscription;
 
   // Find & replace bar state
   bool _showFindBar = false;
@@ -334,17 +332,6 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     );
   }
 
-  void listenContentChange() {
-    _subscription?.cancel();
-    _subscription = editorState.transactionStream.listen((event) {
-      final (time, transaction, options) = event;
-      if (time != TransactionTime.after) return;
-      if (transaction.operations.isEmpty) return;
-      if (options.resolvedSource == TransactionSource.none) return;
-      isContentChanged = true;
-    });
-  }
-
   void _initDocumentFromContent(String plaintext) {
     Document? document;
 
@@ -378,21 +365,6 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
       end: Position(path: node.path, offset: node.delta?.toPlainText().length ?? 0),
     );
     final newRecordSelection = newNodes.isNotEmpty ? selectionAtNodeEnd(newNodes.first) : null;
-
-    // First load (no scroll controller yet): create fresh state.
-    if (editorScrollController == null) {
-      editorState.dispose();
-      editorState = EditorState(document: document);
-      editorScrollController = EditorScrollController(editorState: editorState);
-      listenContentChange();
-
-      if (isNewRecord) {
-        editorState.updateSelectionWithReason(newRecordSelection);
-      }
-      _focusNode.requestFocus();
-      _handleKeywordJump();
-      return;
-    }
 
     final savedSelection = editorState.selection;
     final existingCount = editorState.document.root.children.length;
@@ -585,17 +557,24 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
   @override
   void initState() {
     super.initState();
-    _focusNode.addListener(_onFocusChange);
+    editorState = EditorState.blank();
+    editorScrollController = EditorScrollController(editorState: editorState);
+    listen(_focusNode, _onFocusChange);
+    subscribe(editorState.transactionStream, (event) {
+      final (time, transaction, options) = event;
+      if (time != TransactionTime.after) return;
+      if (transaction.operations.isEmpty) return;
+      if (options.resolvedSource == TransactionSource.none) return;
+      isContentChanged = true;
+    });
   }
 
   @override
   void dispose() {
-    _focusNode.removeListener(_onFocusChange);
     _focusNode.dispose();
-    _subscription?.cancel();
-    editorScrollController?.dispose();
-    super.dispose();
+    editorScrollController.dispose();
     editorState.dispose();
+    super.dispose();
   }
 
   Widget _buildEditorWidget(
@@ -603,56 +582,45 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     Map<String, BlockComponentBuilder> blockComponentBuilders,
     TextStyleConfiguration textStyleConfiguration,
   ) {
+    if (Utils.isDesktop()) {
+      return AppFlowyEditor(
+        editorState: editorState,
+        focusNode: _focusNode,
+        blockComponentBuilders: blockComponentBuilders,
+        characterShortcutEvents: [codeBlockInsertNewLine, ...standardCharacterShortcutEvents],
+        editorScrollController: editorScrollController,
+        autoScrollEdgeOffset: 220,
+        header: RecordModifyTimeBar(uuid: mRecord.uuid),
+        editorStyle: buildEditorStyle(theme, textStyleConfiguration),
+        contextMenuBuilder: (context, position, editorState, onPressed) {
+          final isCollapsed = editorState.selection?.isCollapsed ?? true;
+          final items = isCollapsed
+              ? [
+                  [standardContextMenuItems.first.last],
+                ]
+              : standardContextMenuItems;
+          return ContextMenu(position: position, editorState: editorState, items: items, onPressed: onPressed);
+        },
+      );
+    }
+
     final editor = AppFlowyEditor(
       editorState: editorState,
       focusNode: _focusNode,
       blockComponentBuilders: blockComponentBuilders,
       characterShortcutEvents: [codeBlockInsertNewLine, ...standardCharacterShortcutEvents],
       editorScrollController: editorScrollController,
-      // Mobile: disable autoScrollEdgeOffset (set 0). Default 220 is too large on phone screens;
-      // non-drag-selection scenarios (tap/keyboard pop-up) also trigger autoScroll → poor UX.
-      // When actually dragging selection handles, user's finger is already at the edge and can scroll.
-      autoScrollEdgeOffset: Utils.isDesktop() ? 220 : 40,
+      autoScrollEdgeOffset: 40,
       header: RecordModifyTimeBar(uuid: mRecord.uuid),
       editorStyle: buildEditorStyle(theme, textStyleConfiguration),
-      contextMenuBuilder: (context, position, editorState, onPressed) {
-        final selection = editorState.selection;
-        final nodes = selection != null ? editorState.getNodesInSelection(selection) : const <Node>[];
-        final isImage = nodes.isNotEmpty && nodes.every((n) => n.type == ImageBlockKeys.type);
-        return ContextMenu(
-          position: position,
-          editorState: editorState,
-          items: isImage ? imageContextMenuItems : standardContextMenuItems,
-          onPressed: onPressed,
-        );
-      },
     );
 
-    if (Utils.isDesktop()) {
-      return editor;
-    }
-
-    final scrollController = editorScrollController;
-    if (scrollController == null) {
-      return editor;
-    }
 
     return MobileFloatingToolbar(
       editorState: editorState,
-      editorScrollController: scrollController,
+      editorScrollController: editorScrollController,
       floatingToolbarHeight: 48,
       toolbarBuilder: (context, anchor, closeToolbar) {
-        final selection = editorState.selection;
-        final nodes = selection != null ? editorState.getNodesInSelection(selection) : const <Node>[];
-        final isImage = nodes.isNotEmpty && nodes.every((n) => n.type == ImageBlockKeys.type);
-        if (isImage) {
-          return ContextMenu(
-            position: anchor,
-            editorState: editorState,
-            items: imageContextMenuItems,
-            onPressed: closeToolbar,
-          );
-        }
         return AdaptiveTextSelectionToolbar.editable(
           clipboardStatus: ClipboardStatus.pasteable,
           onCopy: () {

@@ -1,5 +1,5 @@
 {
-  "dart.projectFolders": ["."],
+  "dart.projectFolders": ["client_flutter"],
   "files.exclude": {
     "**/libs/appflowy_editor/example": true
   },
