@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/utils/app_logger.dart';
+import 'package:notee/utils/image_compressor.dart';
 
 class FixedToolbar extends StatefulWidget {
   const FixedToolbar({
@@ -125,6 +126,7 @@ class _FixedToolbarState extends State<FixedToolbar> {
     'editor.info',
     'editor.find',
     'editor.outline',
+    'editor.image',
   };
 
   Widget _buildItem(ToolbarItem item, Color iconColor, Color activeColor) {
@@ -401,6 +403,7 @@ ToolbarItem buildImageToolbarItem({required ImageAssetBuilder buildAsset}) => To
 ///   into the document so the image renders immediately.
 ///
 /// All three strings are expected to be pre-assembled by the caller.
+
 Future<void> handleInsertImage({
   required EditorState editorState,
   required String src,
@@ -414,20 +417,46 @@ Future<void> handleInsertImage({
     try {
       final destDir = Directory(destPath).parent;
       if (!destDir.existsSync()) destDir.createSync(recursive: true);
-      File(src).copySync(destPath);
+
+      // Downscale large images before copying — prevents multi-MB bloats
+      // from phone camera shots (often 4000×3000+).
+      final compressed = await compressStaticImage(src);
+      File(destPath).writeAsBytesSync(compressed);
     } catch (e) {
       AppLogger.e('Editor', "[handleInsertImage] copy asset failed: $e");
       return;
     }
     url = relativeUrl;
   }
-  await editorState.insertImageNode(url);
+
+  // Determine insertion position — fallback to document start when there's
+  // no valid collapsed selection (empty doc, no cursor, expanded selection).
   final selection = editorState.selection;
-  if (selection != null) {
-    final path = selection.end.path;
-    final transaction = editorState.transaction
-      ..insertNode(path.next, paragraphNode())
-      ..afterSelection = Selection.collapsed(Position(path: path.next));
-    await editorState.apply(transaction);
+  final Path insertPath;
+  if (selection != null && selection.isCollapsed) {
+    final node = editorState.getNodeAtPath(selection.end.path);
+    if (node != null) {
+      // Empty paragraph at cursor → replace it (same as AppFlowy default)
+      if (node.type == ParagraphBlockKeys.type &&
+          (node.delta?.isEmpty ?? false)) {
+        final transaction = editorState.transaction
+          ..insertNode(node.path, imageNode(url: url))
+          ..deleteNode(node)
+          ..afterSelection = Selection.collapsed(Position(path: node.path.next));
+        await editorState.apply(transaction);
+        return;
+      }
+      // Otherwise insert after cursor
+      insertPath = node.path.next;
+    } else {
+      insertPath = [0];
+    }
+  } else {
+    insertPath = [0]; // no cursor at all → document start
   }
+
+  final transaction = editorState.transaction
+    ..insertNode(insertPath, imageNode(url: url))
+    ..afterSelection = Selection.collapsed(Position(path: insertPath.next));
+  await editorState.apply(transaction);
 }
