@@ -159,13 +159,10 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
   Future<void> _saveImage() async {
     final source = _sourceLocalFile;
     if (source == null) return;
-    final suggested = p.basename(source.path);
-    final destination = await FilePicker.platform.saveFile(
-      dialogTitle: l10n.save,
-      fileName: suggested,
-    );
-    if (destination == null || destination.isEmpty) return; // user cancelled
+    final dir = await FilePicker.platform.getDirectoryPath();
+    if (dir == null || dir.isEmpty) return; // user cancelled
     try {
+      final destination = p.join(dir, p.basename(source.path));
       await source.copy(destination);
     } catch (_) {
       if (mounted) {
