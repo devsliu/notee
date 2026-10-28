@@ -1,0 +1,9 @@
+# Flutter auto-generated files — keep LF regardless of platform
+lib/l10n/*.dart text eol=lf
+windows/flutter/generated_plugin_registrant.cc text eol=lf
+windows/flutter/generated_plugins.cmake text eol=lf
+linux/flutter/generated_plugin_registrant.cc text eol=lf
+linux/flutter/generated_plugins.cmake text eol=lf
+macos/Flutter/GeneratedPluginRegistrant.swift text eol=lf
+android/**/GeneratedPluginRegistrant.* text eol=lf
+ios/**/GeneratedPluginRegistrant.* text eol=lf

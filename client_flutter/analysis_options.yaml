@@ -14,6 +14,7 @@ analyzer:
     - windows/**
     - linux/**
     - macos/**
+    - libs/appflowy_editor/example/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

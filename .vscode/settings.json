@@ -1,0 +1,12 @@
+{
+  "dart.projectFolders": ["."],
+  "files.exclude": {
+    "**/libs/appflowy_editor/example": true
+  },
+  "search.exclude": {
+    "**/libs/appflowy_editor/example": true
+  },
+  "dart.analysisExcludedFolders": [
+    "libs/appflowy_editor/example"
+  ]
+}
