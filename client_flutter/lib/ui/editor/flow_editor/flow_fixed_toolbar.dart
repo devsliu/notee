@@ -384,7 +384,7 @@ ToolbarItem buildImageToolbarItem({required ImageAssetBuilder buildAsset}) => To
         if (result == null || result.files.single.path == null) return;
         final src = result.files.single.path!;
         final (:destPath, :insertUrl) = buildAsset(src);
-        handleInsertImage(editorState: editorState, src: src, destPath: destPath, relativeUrl: insertUrl);
+        await handleInsertImage(editorState: editorState, src: src, destPath: destPath, relativeUrl: insertUrl);
       },
     );
     if (tooltipBuilder != null) {
@@ -401,38 +401,33 @@ ToolbarItem buildImageToolbarItem({required ImageAssetBuilder buildAsset}) => To
 ///   into the document so the image renders immediately.
 ///
 /// All three strings are expected to be pre-assembled by the caller.
-void handleInsertImage({
+Future<void> handleInsertImage({
   required EditorState editorState,
   required String src,
   required String destPath,
   required String relativeUrl,
-}) {
-  Future.microtask(() async {
-    if (isRemoteUrl(src)) {
-      await editorState.insertImageNode(src);
-    } else {
-      try {
-        final destDir = Directory(destPath).parent;
-        if (!destDir.existsSync()) destDir.createSync(recursive: true);
-        File(src).copySync(destPath);
-      } catch (e) {
-        AppLogger.e('Editor', "[handleInsertImage] copy asset failed: $e");
-        return;
-      }
-      await editorState.insertImageNode(relativeUrl);
+}) async {
+  final String url;
+  if (isRemoteUrl(src)) {
+    url = src;
+  } else {
+    try {
+      final destDir = Directory(destPath).parent;
+      if (!destDir.existsSync()) destDir.createSync(recursive: true);
+      File(src).copySync(destPath);
+    } catch (e) {
+      AppLogger.e('Editor', "[handleInsertImage] copy asset failed: $e");
+      return;
     }
-
-    // insertImageNode lands the selection on the image's next path, which
-    // is either out of range or still points to a non-delta node.  Append
-    // a paragraph after the image and move the caret there so typing works
-    // immediately after inserting an image.
-    final sel = editorState.selection;
-    if (sel != null && sel.isCollapsed) {
-      final txn = editorState.transaction;
-      txn
-        ..insertNode(sel.end.path, paragraphNode())
-        ..afterSelection = Selection.collapsed(Position(path: sel.end.path));
-      await editorState.apply(txn);
-    }
-  });
+    url = relativeUrl;
+  }
+  await editorState.insertImageNode(url);
+  final selection = editorState.selection;
+  if (selection != null) {
+    final path = selection.end.path;
+    final transaction = editorState.transaction
+      ..insertNode(path.next, paragraphNode())
+      ..afterSelection = Selection.collapsed(Position(path: path.next));
+    await editorState.apply(transaction);
+  }
 }
