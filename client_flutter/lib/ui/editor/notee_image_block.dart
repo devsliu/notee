@@ -192,8 +192,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
             unawaited(_saveImage());
           },
         ),
-      ],
-      [
         ContextMenuItem(
           getName: () => l10n.delete,
           onPressed: (state) {
