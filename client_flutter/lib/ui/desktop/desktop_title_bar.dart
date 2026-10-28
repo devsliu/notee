@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:notee/ui/desktop/window_state.dart';
-import 'package:notee/ui/editor/editor_save_coordinator.dart';
+import 'package:notee/ui/editor/editor_save_registry.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../config/language_manager.dart';
@@ -224,7 +224,7 @@ class _WindowManagerButtonsState extends State<WindowManagerButtons> {
           tooltip: l10n.windowClose,
           onPressed: () async {
             // 关窗前刷新所有编辑器的 pending 保存, 防止进程退出丢失最后一次编辑
-            await EditorSaveCoordinator.flushAll();
+            await EditorSaveRegistry.instance.flushAll();
             await windowManager.close();
           },
         ),

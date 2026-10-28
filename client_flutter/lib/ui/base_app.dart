@@ -16,7 +16,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../l10n/app_localizations.dart';
 import 'conflict/conflict_list_page.dart';
-import 'editor/editor_save_coordinator.dart';
+import 'editor/editor_save_registry.dart';
 
 /// 跨平台 app 抽象基类。
 ///
@@ -202,7 +202,7 @@ abstract class BaseAppState<T extends BaseApp> extends State<T>
   /// 进程即将终止时调用（覆盖以执行额外的持久化）。
   void onAppTerminating() {
     AppEnv.prefs.save();
-    EditorSaveCoordinator.flushAll();
+    EditorSaveRegistry.instance.flushAll();
   }
 
   void _onNotificationTap() {

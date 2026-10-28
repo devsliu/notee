@@ -15,7 +15,7 @@ import 'package:notee/utils/utils.dart';
 import 'package:notee/utils/object_ref.dart';
 import 'package:notee/ui/desktop/desktop_tabs_page.dart';
 
-import 'editor_save_coordinator.dart';
+import 'editor_save_registry.dart';
 import '../../utils/state_ext.dart';
 
 /// Unified page state: mode + payload + buildCount.
@@ -51,14 +51,14 @@ abstract class BaseRecordEditPage extends StatefulWidget {
 
 abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends BaseState<T>
     with WidgetsBindingObserver
-    implements DesktopTabPageState, SaveFlushTarget {
+    implements DesktopTabPageState {
   PageState pageState = PageState(PageState.modeLoad);
   String? _password; // Save unlock password
   int _saveCount = 0; // Track save count
   bool isContentChanged = false; // Whether content has been modified
   bool _isInForeground = true; // Whether currently in foreground
-  Future<void>? _saveFuture; // Coalesce concurrent save calls
   final ObjectRef<String> _contentMd5 = ObjectRef(""); // Track content md5 for diff comparison
+  Set<String>? _lastAssetNames; // Asset names from the latest saveRecord, used by dispose
 
   /// Current record — non-final, replaced in _onTreeChanged when sync delivers a new one.
   late RecordEntry mRecord;
@@ -75,7 +75,7 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    EditorSaveCoordinator.register(this);
+    EditorSaveRegistry.instance.register(this);
 
     mRecord = Repository.get().recordTree.findRecord(widget.uuid)!;
     subscribe(Repository.get().recordTree.onEvent, _onTreeChanged);
@@ -88,12 +88,17 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    EditorSaveCoordinator.unregister(this);
-    // Kick off save chain — coalescing inside saveRecord guarantees latest dirty content
-    // gets saved even if a prior save is still in-flight. The returned Future continues
-    // on the Dart isolate after dispose; the isolate stays alive until save completes.
-    saveRecord();
+    EditorSaveRegistry.instance.unregister(this);
     RecordOpenedState.get().closeFile(mRecord.uuid);
+    // Kick off final save through the global per-uuid queue, then prune orphaned
+    // assets ONLY after the last flush completes — intermediate auto-saves must
+    // NOT delete images that might still be re-added by undo/redo.
+    saveRecord()?.whenComplete(() {
+      final assetNames = _lastAssetNames;
+      if (assetNames != null) {
+        Repository.get().fileStore?.pruneAssetsKeepOnly(mRecord.uuid, assetNames);
+      }
+    });
     super.dispose();
   }
 
@@ -229,7 +234,7 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
   Future<void> loadContent() async {
     // 先等该 uuid 的在飞保存链写完: 关闭后快速重开同一笔记时, 旧页面的 dispose
     // 已发起保存但尚未落盘, 新页面实例的 _saveFuture 是 null, 必须按 uuid 全局等待
-    await EditorSaveCoordinator.waitPending(mRecord.uuid);
+    await EditorSaveRegistry.instance.wait(mRecord.uuid);
     if (!pageState.isNormal) {
       //如果后续重新加载新的内容, 则不显示加载中
       setStateMode(PageState.modeLoad);
@@ -300,63 +305,37 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
   //  File-level header parsing (moved to record_ext.dart)
   // ================================================================
 
-  /// Save edit. Returns the Future tracking this save (or the in-flight one if coalesced).
-  /// Coalesce strategy: if a save is already running AND new edits arrived, it chains a
-  /// follow-up save AFTER the current one finishes — never drops the latest dirty state.
-  @override
+  /// Save edit through the global per-uuid queue — same uuid serial, different
+  /// uuid parallel. No save is dropped; rapid edits are simply queued after the
+  /// in-flight one finishes.
   Future<void>? saveRecord() {
-    if (!isContentChanged) {
-      return _saveFuture; // return in-progress Future if any, otherwise null
-    }
+    if (!isContentChanged) return EditorSaveRegistry.instance.tailOf(mRecord.uuid);
 
-    if (_saveFuture != null) {
-      // A save is in-flight and new edits arrived — queue a follow-up after it completes
-      final current = _saveFuture!;
-      _saveFuture = current.then((_) async {
-        if (isContentChanged) {
-          // _saveFuture is now null (cleared by the in-flight Future's whenComplete),
-          // so the recursive call will start a fresh save and return its Future
-          await saveRecord();
-        }
-      });
-      return _saveFuture;
-    }
+    isContentChanged = false;
+    _saveCount++;
 
     var (content, name, assetNames) = formatContent();
-
     if (name.isEmpty) {
       name = RecordUtils.generateRecordName();
     }
+    _lastAssetNames = assetNames.toSet();
 
-    _saveCount++;
-    isContentChanged = false;
-
-    late Future<void> chain;
-    chain =
-        saveWorkFile(
-              uuid: mRecord.uuid,
-              path: mRecord.local.path,
-              name: name,
-              body: content,
-              assetNames: assetNames,
-              locked: mRecord.local.locked,
-              password: _password,
-              md5Ref: _contentMd5,
-            )
-            .then((_) {
-              // Prune asset files that are no longer referenced by any image node.
-              Repository.get().fileStore?.pruneAssetsKeepOnly(mRecord.uuid, assetNames.toSet());
-            })
-            .catchError((e) {
-              AppLogger.e('Editor', "[BaseEditPage] save failed: $e");
-              isContentChanged = true;
-            })
-            .whenComplete(() {
-              _saveFuture = null;
-            });
-    chain = EditorSaveCoordinator.trackSave(chain, mRecord.uuid);
-    _saveFuture = chain;
-    return chain;
+    EditorSaveRegistry.instance.submit(mRecord.uuid, () async {
+      await saveWorkFile(
+        uuid: mRecord.uuid,
+        path: mRecord.local.path,
+        name: name,
+        body: content,
+        assetNames: assetNames,
+        locked: mRecord.local.locked,
+        password: _password,
+        md5Ref: _contentMd5,
+      ).catchError((e) {
+        AppLogger.e('Editor', "[BaseEditPage] save failed: $e");
+        isContentChanged = true;
+      });
+    });
+    return EditorSaveRegistry.instance.tailOf(mRecord.uuid);
   }
 
   /// Write [body] + [assetNames] to work file (with header built here), update
