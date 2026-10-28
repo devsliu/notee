@@ -15,7 +15,6 @@ import 'package:notee/ui/editor/flow_editor/flow_fixed_toolbar.dart';
 import 'package:notee/ui/editor/base_record_edit_page.dart';
 import 'package:notee/ui/files/record_io.dart';
 import 'package:notee/filesync/record_ext.dart';
-import 'package:notee/ui/editor/flow_editor/flow_context_menu.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/utils/utils.dart';
@@ -616,6 +615,17 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
       autoScrollEdgeOffset: Utils.isDesktop() ? 220 : 40,
       header: RecordModifyTimeBar(uuid: mRecord.uuid),
       editorStyle: buildEditorStyle(theme, textStyleConfiguration),
+      contextMenuBuilder: (context, position, editorState, onPressed) {
+        final selection = editorState.selection;
+        final nodes = selection != null ? editorState.getNodesInSelection(selection) : const <Node>[];
+        final isImage = nodes.isNotEmpty && nodes.every((n) => n.type == ImageBlockKeys.type);
+        return ContextMenu(
+          position: position,
+          editorState: editorState,
+          items: isImage ? imageContextMenuItems : standardContextMenuItems,
+          onPressed: onPressed,
+        );
+      },
     );
 
     if (Utils.isDesktop()) {
@@ -627,11 +637,48 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
       return editor;
     }
 
-    return MobileFloatingToolbarBuilder.build(
-      context: context,
+    return MobileFloatingToolbar(
       editorState: editorState,
       editorScrollController: scrollController,
-      editor: editor,
+      floatingToolbarHeight: 48,
+      toolbarBuilder: (context, anchor, closeToolbar) {
+        final selection = editorState.selection;
+        final nodes = selection != null ? editorState.getNodesInSelection(selection) : const <Node>[];
+        final isImage = nodes.isNotEmpty && nodes.every((n) => n.type == ImageBlockKeys.type);
+        if (isImage) {
+          return ContextMenu(
+            position: anchor,
+            editorState: editorState,
+            items: imageContextMenuItems,
+            onPressed: closeToolbar,
+          );
+        }
+        return AdaptiveTextSelectionToolbar.editable(
+          clipboardStatus: ClipboardStatus.pasteable,
+          onCopy: () {
+            copyCommand.execute(editorState);
+            closeToolbar();
+          },
+          onCut: () {
+            cutCommand.execute(editorState);
+            closeToolbar();
+          },
+          onPaste: () {
+            pasteCommand.execute(editorState);
+            closeToolbar();
+          },
+          onSelectAll: () {
+            selectAllCommand.execute(editorState);
+            closeToolbar();
+          },
+          onLiveTextInput: null,
+          onLookUp: null,
+          onSearchWeb: null,
+          onShare: null,
+          anchors: TextSelectionToolbarAnchors(primaryAnchor: anchor),
+        );
+      },
+      child: editor,
     );
   }
 }
