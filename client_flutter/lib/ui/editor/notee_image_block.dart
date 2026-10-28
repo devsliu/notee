@@ -11,23 +11,6 @@ import '../../filesync/file_store.dart';
 
 typedef NoteeAssetResolver = RecordAsset Function(String src);
 
-final imageContextMenuItems = [
-  [
-    ContextMenuItem(
-      getName: () => l10n.delete,
-      onPressed: (state) {
-        final selection = state.selection;
-        if (selection == null) return;
-        final transaction = state.transaction;
-        for (final node in state.getNodesInSelection(selection)) {
-          transaction.deleteNode(node);
-        }
-        state.apply(transaction);
-      },
-    ),
-  ],
-];
-
 /// Custom image block builder that resolves relative `assets/...` urls into
 /// absolute local paths before rendering.  The original document node is
 /// never mutated — resolution is purely render-time.
