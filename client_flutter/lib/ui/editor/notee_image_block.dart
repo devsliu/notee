@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:provider/provider.dart';
 
@@ -99,10 +100,18 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
   bool _isDownloading = false;
   bool _downloadError = false;
 
+  OverlayEntry? _menuEntry;
+
   @override
   void initState() {
     super.initState();
     _resolveAndDownload();
+  }
+
+  @override
+  void dispose() {
+    _menuEntry?.remove();
+    super.dispose();
   }
 
   @override
@@ -119,7 +128,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     _resolved = widget.srcResolver(rawSrc);
     _isDownloading = false;
     _downloadError = false;
-    // Trigger a download when we have a cache path and the file isn't on disk yet.
     if (_resolved.cachePath.isNotEmpty &&
         !File(_resolved.cachePath).existsSync()) {
       _isDownloading = true;
@@ -130,7 +138,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
   Future<void> _downloadAsset() async {
     try {
       final ok = await widget.fileStore.downloadAsset(_resolved);
-
       if (mounted) {
         setState(() {
           _isDownloading = false;
@@ -145,6 +152,50 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
         });
       }
     }
+  }
+
+  void _dismissMenu() {
+    _menuEntry?.remove();
+    _menuEntry = null;
+  }
+
+  void _showImageMenu(Offset globalPosition) {
+    _dismissMenu();
+    if (!mounted) return;
+
+    HapticFeedback.mediumImpact();
+
+    final items = <List<ContextMenuItem>>[
+      [
+        ContextMenuItem(
+          getName: () => l10n.delete,
+          onPressed: (state) {
+            final transaction = state.transaction..deleteNode(widget.node);
+            state.apply(transaction);
+            _dismissMenu();
+          },
+        ),
+      ],
+    ];
+
+    _menuEntry = OverlayEntry(
+      builder: (_) => GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _dismissMenu,
+        child: Stack(
+          children: [
+            Positioned.fill(child: const SizedBox.expand()),
+            ContextMenu(
+              position: globalPosition,
+              editorState: editorState,
+              items: items,
+              onPressed: _dismissMenu,
+            ),
+          ],
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_menuEntry!);
   }
 
   @override
@@ -165,8 +216,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     } else if (_downloadError) {
       imageWidget = _buildError(width, height);
     } else {
-      // cachePath is the local cached path (asset dir or image cache dir);
-      // if empty (shouldn't happen) fall back to src (network URL etc).
       final displaySrc = _resolved.cachePath.isNotEmpty ? _resolved.cachePath : _resolved.src;
       imageWidget = ResizableImage(
         src: displaySrc,
@@ -203,16 +252,19 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       );
     }
 
-    // Android-only: on some Samsung devices the MobileSelectionGestureDetector
-    // triggers a kernel userfaultfd timeout storm and locks the UI thread when
-    // selection changes happen on block components.  Swallow pointer events
-    // here so selection never fires, without introducing a competing
-    // GestureRecognizer that could make things worse.  AbsorbPointer alone
-    // blocks child components from receiving pointers; no outer GestureDetector
-    // is needed.
-    if (Platform.isAndroid) {
-      child = AbsorbPointer(child: child);
-    }
+    // Absorb pointer events so the editor's selection gesture system never
+    // fires collapsed/non-collapsed selections on this block node — the
+    // editor_state setter guard also rejects them, but absorbing earlier
+    // avoids any IME side-effects (keyboard pop-up etc).
+    child = AbsorbPointer(child: child);
+
+    // Wrap in GestureDetector to hook both desktop right-click and mobile
+    // long-press to our independent context menu (no selection required).
+    child = GestureDetector(
+      onSecondaryTapUp: (details) => _showImageMenu(details.globalPosition),
+      onLongPressStart: (details) => _showImageMenu(details.globalPosition),
+      child: child,
+    );
 
     child = Padding(padding: margin, child: child);
     return child;
@@ -238,7 +290,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
         ),
       );
 
-  // --- SelectableMixin delegates (same as ImageBlockComponentWidgetState) ---
+  // --- SelectableMixin delegates ---
 
   @override
   Position start() => Position(path: widget.node.path);
