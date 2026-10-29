@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:notee/config/app_env.dart';
@@ -403,12 +403,12 @@ class _CalendarPageState extends State<CalendarPage> implements DesktopTabPageSt
         style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withAlpha(180)),
       ),
       trailing: PopupMenuButton<String>(
+          popUpAnimationStyle: AnimationStyle.noAnimation,
         icon: Icon(Icons.edit_outlined, size: 18, color: theme.colorScheme.primary),
         tooltip: l10n.edit,
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
         splashRadius: 18,
-        popUpAnimationStyle: const AnimationStyle(duration: Duration(milliseconds: 120)),
         onSelected: (v) {
           switch (v) {
             case 'toggle':

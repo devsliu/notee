@@ -105,7 +105,7 @@ final appThemes = [
         color: Color(0xFFFFFFFF),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFFD1D1D1).withAlpha(250), width: 1),
+          side: BorderSide(color: Color(0xFFD1D1D1).withAlpha(80), width: 1),
         ),
       ),
     ),
@@ -168,7 +168,7 @@ final appThemes = [
         color: Color(0xFFFDF6E3), // base3
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFF93A1A1).withAlpha(180), width: 1), // base1
+          side: BorderSide(color: Color(0xFF93A1A1).withAlpha(80), width: 1), // base1
         ),
       ),
     ),
@@ -226,7 +226,7 @@ final appThemes = [
         color: Color(0xFFFFF8DC),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFF8B4513).withAlpha(250), width: 1),
+          side: BorderSide(color: Color(0xFF8B4513).withAlpha(80), width: 1),
         ),
       ),
       // Ensure sufficient contrast for icons in popups/dialogs
@@ -293,7 +293,7 @@ final appThemes = [
         color: Color(0xFFFBF5EC),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFFB76E79).withAlpha(180), width: 1),
+          side: BorderSide(color: Color(0xFFB76E79).withAlpha(80), width: 1),
         ),
       ),
     ),
@@ -349,7 +349,7 @@ final appThemes = [
         color: Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFFC486D0).withAlpha(250), width: 1),
+          side: BorderSide(color: Color(0xFFC486D0).withAlpha(80), width: 1),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: Color(0xFF552EAB))),
@@ -406,7 +406,7 @@ final appThemes = [
         color: Color(0xFFE8F4FE),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFF0277BD).withAlpha(200), width: 1),
+          side: BorderSide(color: Color(0xFF0277BD).withAlpha(80), width: 1),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: Color(0xFF08304F))),
@@ -463,7 +463,7 @@ final appThemes = [
         color: Color(0xFFFFF5F8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFFC2185B).withAlpha(200), width: 1),
+          side: BorderSide(color: Color(0xFFC2185B).withAlpha(80), width: 1),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: Color(0xFF4A1526))),
@@ -524,7 +524,7 @@ final appThemes = [
         color: Color(0xFF232323),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFF333337).withAlpha(250), width: 1),
+          side: BorderSide(color: Color(0xFF333337).withAlpha(80), width: 1),
         ),
       ),
     ),
@@ -585,7 +585,7 @@ final appThemes = [
         color: Color(0xFF262645),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFF4FC3F7).withAlpha(180), width: 1),
+          side: BorderSide(color: Color(0xFF4FC3F7).withAlpha(80), width: 1),
         ),
       ),
     ),
@@ -647,7 +647,7 @@ final appThemes = [
         color: Color(0xFF121212),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(2),
-          side: BorderSide(color: Color(0xFF455A64).withAlpha(200), width: 1),
+          side: BorderSide(color: Color(0xFF455A64).withAlpha(80), width: 1),
         ),
       ),
     ),

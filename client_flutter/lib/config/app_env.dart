@@ -104,8 +104,7 @@ class AppEnv {
   }
 
   /// Unified menu animation.
-  static AnimationStyle get menuAnimationStyle =>
-      const AnimationStyle(duration: Duration(milliseconds: 80), curve: Curves.fastLinearToSlowEaseIn);
+  static AnimationStyle get menuAnimationStyle => AnimationStyle.noAnimation;
 
   /// 当前布局模式: 优先使用 pref 中手动设置的值,
   /// pref 为空时按屏幕短边宽度自动判断 (>=600 为 pad)

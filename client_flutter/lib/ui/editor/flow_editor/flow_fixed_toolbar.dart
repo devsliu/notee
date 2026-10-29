@@ -132,17 +132,15 @@ class _FixedToolbarState extends State<FixedToolbar> {
   Widget _buildItem(ToolbarItem item, Color iconColor, Color activeColor) {
     // Items are null-selection-safe; keep the toolbar visible at all times.
     // tooltipBuilder is forwarded so each item can wrap its own tooltip message.
-    var w = item.builder?.call(context, widget.editorState, activeColor, iconColor, widget.tooltipBuilder);
-    // Builder may have wrapped the icon in a Tooltip — unwrap before the type check
-    final icon = w is Tooltip ? w.child : w;
-    if (icon is! SVGIconItemWidget) return const SizedBox.shrink();
+    final w = item.builder?.call(context, widget.editorState, activeColor, iconColor, widget.tooltipBuilder);
+    if (w == null) return const SizedBox.shrink();
     // No selection → gray out items that operate on the selection. Opacity is
     // used instead of a gray iconColor because iconBuilder closures capture the
     // original color. Their onPressed callbacks are all null-selection-safe.
     if (widget.editorState.selection == null && !_selectionFreeItems.contains(item.id)) {
-      w = Opacity(opacity: 0.4, child: w);
+      return Opacity(opacity: 0.4, child: w);
     }
-    return w!;
+    return w;
   }
 }
 

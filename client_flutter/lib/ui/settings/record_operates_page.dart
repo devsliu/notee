@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:notee/ui/common/app_bar.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/utils/utils.dart';
@@ -124,6 +124,7 @@ class _LogsPageState extends State<LogsPage> {
     final color = _filterLevel != null ? _levelColor(_filterLevel!) : null;
     final label = _filterLevel ?? l10n.filterAll;
     return PopupMenuButton<String>(
+          popUpAnimationStyle: AnimationStyle.noAnimation,
       tooltip: l10n.filterLevel,
       onSelected: (v) {
         final next = v.isEmpty ? null : v;

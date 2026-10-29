@@ -1,4 +1,4 @@
-import 'dart:math';
+﻿import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:notee/config/app_env.dart';
@@ -111,6 +111,7 @@ class RecordListActions {
       builder: (context, _, _) {
         if (AppEnv.listPageValue.panelMode == FilesPanelMode.panelModeTag) return SizedBox.shrink();
         return PopupMenuButton<String>(
+          popUpAnimationStyle: AnimationStyle.noAnimation,
           icon: Icon(_listTypeIcon(AppEnv.listPageValue.listFilesType)),
           iconColor: Theme.of(context).appBarIconColor,
           tooltip: l10n.sortType,
@@ -134,6 +135,7 @@ class RecordListActions {
 
   static Widget importExportButton(BuildContext context, ReturnCallback<String> getFolder) {
     return PopupMenuButton<String>(
+          popUpAnimationStyle: AnimationStyle.noAnimation,
       iconColor: Theme.of(context).appBarIconColor,
       icon: const Icon(Icons.import_export_outlined),
       tooltip: l10n.importExport,
@@ -242,6 +244,7 @@ class RecordListActions {
 
   static Widget languageButton(BuildContext context) {
     return PopupMenuButton<LanguageOption>(
+          popUpAnimationStyle: AnimationStyle.noAnimation,
       icon: const Icon(Icons.language_outlined),
       iconColor: Theme.of(context).appBarIconColor,
       tooltip: l10n.language,

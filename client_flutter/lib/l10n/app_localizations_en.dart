@@ -926,4 +926,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get codeBlock => 'Code Block';
+
+  @override
+  String get textFormat => 'Text Format';
+
+  @override
+  String get heading => 'Heading';
 }

@@ -1807,6 +1807,18 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'代码块'**
   String get codeBlock;
+
+  /// No description provided for @textFormat.
+  ///
+  /// In zh, this message translates to:
+  /// **'文字格式'**
+  String get textFormat;
+
+  /// No description provided for @heading.
+  ///
+  /// In zh, this message translates to:
+  /// **'标题'**
+  String get heading;
 }
 
 class _AppLocalizationsDelegate

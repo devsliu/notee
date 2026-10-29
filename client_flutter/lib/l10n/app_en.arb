@@ -343,5 +343,7 @@
   "switchAccountFailed": "Failed to switch account",
   "loadingUserData": "Loading user data...",
   "image": "Image",
-  "codeBlock": "Code Block"
+  "codeBlock": "Code Block",
+  "textFormat": "Text Format",
+  "heading": "Heading"
 }

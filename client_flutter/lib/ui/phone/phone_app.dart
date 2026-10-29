@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/ui/base_app.dart';
@@ -81,6 +81,7 @@ class PhoneRecordDetailPageState<T extends PhoneRecordDetailPage> extends Record
         if (pageState.isNormal) IconButton(onPressed: saveRecord, icon: Icon(Icons.done_outlined)),
         if (pageState.isNormal)
           PopupMenuButton<int>(
+          popUpAnimationStyle: AnimationStyle.noAnimation,
             icon: Icon(Icons.more_vert),
             onSelected: onOverflowMenuSelect,
             itemBuilder: buildOverflowMenuItems,

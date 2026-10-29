@@ -918,4 +918,10 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get codeBlock => '代码块';
+
+  @override
+  String get textFormat => '文字格式';
+
+  @override
+  String get heading => '标题';
 }

@@ -23,6 +23,7 @@ import 'package:notee/ui/editor/flow_editor/code_block_toolbar_item.dart';
 import 'package:notee/ui/editor/flow_editor/code_block_newline.dart';
 import 'package:notee/ui/editor/flow_editor/find_replace_bar.dart';
 import 'package:notee/ui/editor/flow_editor/notee_image_block.dart';
+import 'package:notee/ui/editor/flow_editor/toolbar_item_with_menu.dart';
 import 'package:notee/ui/editor/record_outline_panel.dart';
 import 'package:notee/ui/editor/record_info_dialog.dart';
 import 'package:notee/ui/editor/share_record_dialog.dart';
@@ -291,21 +292,42 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     _rebuildStyleCache();
   }
 
-  List<ToolbarItem> get _toolbarItems => [
-    undoToolbarItem,
-    redoToolbarItem,
-    todoListItem,
-    codeBlockItem,
-    quoteItem,
-    tableToolbarItem,
-    bulletedListItem,
-    numberedListItem,
-    buildTextColorItem(),
-    ...markdownFormatItems,
-    ...headingItems,
-    linkItem,
-    buildImageToolbarItem(buildAsset: _buildAsset),
-  ];
+  List<ToolbarItem> get _toolbarItems {
+    final desktop = false;
+    return [
+      undoToolbarItem,
+      redoToolbarItem,
+      todoListItem,
+      codeBlockItem,
+      quoteItem,
+      tableToolbarItem,
+      bulletedListItem,
+      numberedListItem,
+      buildTextColorItem(),
+      if (desktop) ...markdownFormatItems else _buildFormatMenuItem,
+      if (desktop) ...headingItems else _buildHeadingMenuItem,
+      linkItem,
+      buildImageToolbarItem(buildAsset: _buildAsset),
+    ];
+  }
+
+  /// Bold / italic / underline / strike / code merged into a single button.
+  ToolbarItem get _buildFormatMenuItem => buildToolbarItemWithMenu(
+    id: 'editor.format',
+    group: 2,
+    icon: const Icon(Icons.text_fields_sharp),
+    tooltip: l10n.textFormat,
+    children: markdownFormatItems,
+  );
+
+  /// H1/H2/H3 merged into a single button with a popup menu.
+  ToolbarItem get _buildHeadingMenuItem => buildToolbarItemWithMenu(
+    id: 'editor.heading',
+    group: 1,
+    icon: const Icon(Icons.title_sharp),
+    tooltip: l10n.heading,
+    children: headingItems,
+  );
 
   /// Returns pre-assembled (destPath, insertUrl) for an image source path.
   /// Network URLs or missing fileStore fall back to src itself for both.

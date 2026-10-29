@@ -342,5 +342,7 @@
   "switchAccountFailed":"切换账号失败",
   "loadingUserData":"用户数据加载中",
   "image":"图片",
-  "codeBlock":"代码块"
+  "codeBlock":"代码块",
+  "textFormat":"文字格式",
+  "heading":"标题"
 }
