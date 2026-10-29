@@ -90,14 +90,6 @@ class SyncEngine {
       _pendingForcePull = true;
     }
 
-    // If a sync is already in flight, coalesce: don't enqueue another; just
-    // wait for the queue to drain. The _pendingForcePull flag is already set
-    // above — the executing task (or the next queued one) will pick it up.
-    if (!_syncQueue.isIdle) {
-      AppLogger.i('SyncEngine', "sync coalesced — waiting for queue drain");
-      return _syncQueue.wait();
-    }
-
     return _syncQueue.submit(() async {
       // Capture forcePull flag at the START of execution so queued tasks also
       // pick up forcePull requests made while they were pending.
