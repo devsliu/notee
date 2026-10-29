@@ -70,7 +70,7 @@ class PhoneRecordDetailPageState<T extends PhoneRecordDetailPage> extends Record
 
   PreferredSizeWidget buildAppBar(BuildContext context, RecordEntry record) {
     return createAppBar(
-      leading: IconButton(onPressed: () => widget.closeCallback(context), icon: Icon(Icons.arrow_back)),
+      onBack: () => widget.closeCallback(context),
       titleSpacing: 0,
       titleWidget: StreamBuilder<RecordEvent>(
         stream: recordTree.onEvent,
