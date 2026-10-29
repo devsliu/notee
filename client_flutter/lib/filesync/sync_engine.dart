@@ -107,7 +107,32 @@ class SyncEngine {
       }
       if (_closed) return;
       try {
-        await _runSync();
+        syncStateNotifier.value = SyncState(state: SyncState.syncing);
+
+        DateTime now = DateTime.now();
+        if (_lastSuccessfulPullTime == null || now.difference(_lastSuccessfulPullTime!) >= _syncInterval) {
+          if (!_closed) await pullRecords();
+          _lastSuccessfulPullTime = now;
+        } else {
+          AppLogger.i('SyncEngine', "pull skipped (interval not reached)");
+        }
+
+        if (!_closed) await pushRecords();
+        if (_closed) return;
+
+        // Check conflicts again after push
+        var conflictList = await db.getConflictRecords();
+        if (conflictList.isNotEmpty) {
+          syncStateNotifier.value = SyncState(
+            state: SyncState.error,
+            message: "Note conflict",
+            errorCode: HttpApi.kResultErrorRecordConflict,
+          );
+          return;
+        }
+
+        syncStateNotifier.value = SyncState(state: SyncState.success);
+        AppLogger.i('SyncEngine', "sync completed successfully");
       } catch (e) {
         AppLogger.e('SyncEngine', e.toString());
         if (e is SyncException) {
@@ -121,35 +146,6 @@ class SyncEngine {
         }
       }
     });
-  }
-
-  Future<void> _runSync() async {
-    syncStateNotifier.value = SyncState(state: SyncState.syncing);
-
-    DateTime now = DateTime.now();
-    if (_lastSuccessfulPullTime == null || now.difference(_lastSuccessfulPullTime!) >= _syncInterval) {
-      if (!_closed) await pullRecords();
-      _lastSuccessfulPullTime = now;
-    } else {
-      AppLogger.i('SyncEngine', "pull skipped (interval not reached)");
-    }
-
-    if (!_closed) await pushRecords();
-    if (_closed) return;
-
-    // Check conflicts again after push
-    var conflictList = await db.getConflictRecords();
-    if (conflictList.isNotEmpty) {
-      syncStateNotifier.value = SyncState(
-        state: SyncState.error,
-        message: "Note conflict",
-        errorCode: HttpApi.kResultErrorRecordConflict,
-      );
-      return;
-    }
-
-    syncStateNotifier.value = SyncState(state: SyncState.success);
-    AppLogger.i('SyncEngine', "sync completed successfully");
   }
 
   // =========================================================================
