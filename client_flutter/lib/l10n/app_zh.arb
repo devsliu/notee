@@ -84,7 +84,6 @@
   "themeSky": "天蓝",
   "themeSakura": "樱花",
   "themeRoseGold": "玫瑰金",
-  "pleaseSelectRecord": "请选择笔记",
   "lock": "加锁",
   "lockUnlockFailedCheckPassword": "{operation}失败，请检查密码",
   "cannotReadRecordContent": "无法读取笔记内容",

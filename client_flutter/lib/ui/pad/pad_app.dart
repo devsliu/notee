@@ -35,7 +35,7 @@ class _PadAppState extends BaseAppState<PadApp> {
   Widget _buildEmptyDetail() {
     return Scaffold(
       appBar: createAppBar(),
-      body: EmptyDetailPlaceholder(title: l10n.pleaseSelectRecord),
+      body: EmptyDetailPlaceholder(title: AppEnv.appTitle),
     );
   }
 

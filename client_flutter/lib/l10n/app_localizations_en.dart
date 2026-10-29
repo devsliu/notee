@@ -275,9 +275,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get themeRoseGold => 'Rose Gold';
 
   @override
-  String get pleaseSelectRecord => 'Please select a note';
-
-  @override
   String get lock => 'Lock';
 
   @override

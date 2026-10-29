@@ -602,12 +602,6 @@ abstract class AppLocalizations {
   /// **'玫瑰金'**
   String get themeRoseGold;
 
-  /// No description provided for @pleaseSelectRecord.
-  ///
-  /// In zh, this message translates to:
-  /// **'请选择笔记'**
-  String get pleaseSelectRecord;
-
   /// No description provided for @lock.
   ///
   /// In zh, this message translates to:

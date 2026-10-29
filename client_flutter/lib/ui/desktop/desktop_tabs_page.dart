@@ -348,7 +348,7 @@ class DesktopTabsPageState extends State<DesktopTabsPage> {
     final theme = Theme.of(context);
     final isAnimating = isWindowAnimatingNotifier.value;
     final editor = _tabs.isEmpty
-        ? EmptyDetailPlaceholder(title: l10n.pleaseSelectRecord)
+        ? EmptyDetailPlaceholder(title: AppEnv.appTitle)
         : IndexedStack(index: currentIndex, children: _tabs.map((impl) => impl.page!).toList());
     return Material(
       color: theme.scaffoldBackgroundColor,

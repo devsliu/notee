@@ -274,9 +274,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get themeRoseGold => '玫瑰金';
 
   @override
-  String get pleaseSelectRecord => '请选择笔记';
-
-  @override
   String get lock => '加锁';
 
   @override

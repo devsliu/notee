@@ -84,7 +84,6 @@
   "themeSky": "Sky",
   "themeSakura": "Sakura",
   "themeRoseGold": "Rose Gold",
-  "pleaseSelectRecord": "Please select a note",
   "lock": "Lock",
   "lockUnlockFailedCheckPassword": "{operation} failed, please check password",
   "cannotReadRecordContent": "Cannot read note content",
