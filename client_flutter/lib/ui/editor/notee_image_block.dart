@@ -212,24 +212,29 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     Overlay.of(context).insert(_menuEntry!);
   }
 
-  /// 将菜单位置限制在可见编辑区域内：屏幕 - SafeArea - 软键盘(viewInsets)。
+  /// 将菜单位置限制在编辑器可见区域内（editor viewport bounds in screen space）。
   /// 同时处理左右/上下放不下时的自动翻转。
   Offset _clampToScreen(Offset position) {
     if (!mounted) return position;
-    final media = MediaQuery.of(context);
-    final size = media.size;
-    final pad = media.padding;
-    final inset = media.viewInsets; // 软键盘弹出时 > 0
+
+    final editorBox = editorState.renderBox;
+    if (editorBox == null) return position; // 拿不到就不 clamp
+
+    // editor viewport 在屏幕坐标系下的可见矩形
+    final editorRect = Rect.fromPoints(
+      editorBox.localToGlobal(Offset.zero),
+      editorBox.localToGlobal(editorBox.size.bottomRight(Offset.zero)),
+    );
 
     const menuW = 160.0;
     const menuH = 90.0;
     const margin = 8.0;
 
-    // 可见区域：屏幕 - SafeArea - 键盘 - 边距
-    final availLeft = pad.left + margin;
-    final availTop = pad.top + margin;
-    final availRight = size.width - pad.right - margin;
-    final availBottom = size.height - pad.bottom - inset.bottom - margin;
+    // 可用区域：editor 可见矩形 - 边距
+    final availLeft = editorRect.left + margin;
+    final availTop = editorRect.top + margin;
+    final availRight = editorRect.right - margin;
+    final availBottom = editorRect.bottom - margin;
 
     double dx, dy;
 
