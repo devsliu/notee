@@ -90,13 +90,12 @@ class SyncEngine {
       _pendingForcePull = true;
     }
 
-    // If a sync is already in flight, coalesce: share the same tail Future.
-    // The _pendingForcePull flag is already set above — the executing task
-    // (or the next queued one) will pick it up before running.
-    final existing = _syncQueue.tail;
-    if (existing != null) {
-      AppLogger.i('SyncEngine', "sync coalesced — waiting for queue tail");
-      return existing;
+    // If a sync is already in flight, coalesce: don't enqueue another; just
+    // wait for the queue to drain. The _pendingForcePull flag is already set
+    // above — the executing task (or the next queued one) will pick it up.
+    if (!_syncQueue.isIdle) {
+      AppLogger.i('SyncEngine', "sync coalesced — waiting for queue drain");
+      return _syncQueue.wait();
     }
 
     return _syncQueue.submit(() async {

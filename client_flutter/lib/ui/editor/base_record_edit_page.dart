@@ -306,10 +306,10 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
   // ================================================================
 
   /// Save edit through the global per-uuid queue — same uuid serial, different
-  /// uuid parallel. No save is dropped; rapid edits are simply queued after the
-  /// in-flight one finishes.
+  /// uuid parallel. The queue uses dropOldest: rapid edits coalesce so only the
+  /// latest content is persisted; dropped (superseded) saves never run.
   Future<void>? saveRecord() {
-    if (!isContentChanged) return EditorSaveRegistry.instance.tailOf(mRecord.uuid);
+    if (!isContentChanged) return EditorSaveRegistry.instance.wait(mRecord.uuid);
 
     isContentChanged = false;
     _saveCount++;
@@ -335,7 +335,9 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
         isContentChanged = true;
       });
     });
-    return EditorSaveRegistry.instance.tailOf(mRecord.uuid);
+    // 返回 wait 而非 tailOf：dropOldest 下 tail 指向的任务可能被淘汰并提前
+    // complete，只有 wait 的循环才能保证本次提交（或其继任者）真正落盘。
+    return EditorSaveRegistry.instance.wait(mRecord.uuid);
   }
 
   /// Write [body] + [assetNames] to work file (with header built here), update

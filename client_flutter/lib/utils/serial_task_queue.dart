@@ -36,13 +36,21 @@ class SingleSerialTaskQueue {
     this.overflowStrategy = QueueOverflowStrategy.rejectNew,
   });
 
-  /// 当前队尾；空闲时返回 null。
-  Future<void>? get tail => _currentFuture;
+  /// 队列是否空闲（无在飞、无 pending）。
+  bool get isIdle => !_running && _queue.isEmpty;
 
-  /// 等待当前在飞任务完成（空闲则立即返回）。
+  /// 等待队列 drain（回到空闲）。
+  ///
+  /// 循环读取 [_currentFuture] 而非等某个特定任务：_currentFuture 在每次任务完成时
+  /// 会被 _startNext 自动指向队中下一个任务，直到队列为空才置 null。这自然覆盖了
+  /// 所有 pending 任务，也避开了 dropOldest 下"被淘汰任务的 Future 提前 complete"
+  /// 的假完成问题。
   Future<void> wait() async {
-    final current = _currentFuture;
-    if (current != null) await current;
+    while (true) {
+      final f = _currentFuture;
+      if (f == null) return;
+      await f;
+    }
   }
 
   /// 提交一个任务，排到队尾执行。返回这次任务的 Future。
@@ -78,7 +86,7 @@ class SingleSerialTaskQueue {
     _running = true;
     final item = _queue.removeAt(0);
     _currentFuture = item.completer.future;
-    item.task().then((_) {
+    Future.sync(item.task).then((_) {
       item.completer.complete();
     }).catchError((e, st) {
       item.completer.completeError(e, st);
@@ -127,18 +135,21 @@ class MultiSerialTaskQueue {
     return _getOrCreate(key).submit(task);
   }
 
-  /// 返回 [key] 的队列尾；空闲时返回 null。
-  Future<void>? tailOf(String key) => _queues[key]?.tail;
-
-  /// 等待 [key] 的在飞任务完成（无在飞则立即返回）。
+  /// 等待 [key] 的队列 drain（回到空闲）。
   Future<void> wait(String key) async {
     final q = _queues[key];
     if (q != null) await q.wait();
   }
 
   /// 等待所有 key 的队列 drain。
+  ///
+  /// 外层循环是为了抵抗"等待期间新 key 入队"的竞态；每个队列内部的 [wait]
+  /// 已保证该 key 真正 drain（覆盖在飞 + pending）。
   Future<void> drainAll() async {
-    final futures = _queues.values.map((q) => q.tail).whereType<Future<void>>().toList();
-    await Future.wait(futures);
+    while (true) {
+      final futures = _queues.values.map((q) => q.wait()).toList();
+      if (futures.isEmpty) return;
+      await Future.wait(futures);
+    }
   }
 }
