@@ -382,9 +382,9 @@ ToolbarItem buildImageToolbarItem({required ImageAssetBuilder buildAsset}) => To
       highlightColor: highlightColor,
       iconColor: iconColor,
       onPressed: () async {
-        final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
-        if (result == null || result.files.single.path == null) return;
-        final src = result.files.single.path!;
+        final result = await FilePicker.pickFile(type: FileType.image);
+        if (result == null || result.path == null) return;
+        final src = result.path!;
         final (:destPath, :insertUrl) = buildAsset(src);
         await handleInsertImage(editorState: editorState, src: src, destPath: destPath, relativeUrl: insertUrl);
       },

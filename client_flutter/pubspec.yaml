@@ -2,6 +2,10 @@ name: notee
 description: "A Flutter note application."
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
+# 强制 appflowy_editor 传递依赖的 keyboard_height_plugin 到最新 0.3.0
+dependency_overrides:
+  keyboard_height_plugin: ^0.3.0
+
 version: 1.0.0+1
 
 environment:
@@ -22,15 +26,14 @@ dependencies:
   uuid: ^4.6.0
   window_manager: ^0.5.2
   intl: ^0.20.2
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   encrypt: ^5.0.3
-  open_filex: ^4.5.4
+  open_filex: ^5.0.0
   archive: ^4.5.2
-  package_info_plus: ^9.0.1
+  package_info_plus: ^10.2.2
   drift: ^2.35.2
-  # sqlite3_flutter_libs: ^0.6.0+eol
   two_dimensional_scrollables: ^0.5.5
-  file_picker: ^10.3.10
+  file_picker: ^13.3.0
   charset_converter: ^2.4.0
   image: ^4.12.0
   pointycastle: ^3.9.1
@@ -41,9 +44,8 @@ dependencies:
   flutter_timezone: ^5.1.1
   timezone: ^0.11.1
   table_calendar: ^3.3.0
-  share_plus: ^12.0.2
+  share_plus: ^13.3.1
   sqlite3: ^3.8.0
-
 
 dev_dependencies:
   flutter_test:

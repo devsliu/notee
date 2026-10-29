@@ -7,7 +7,7 @@ import Foundation
 
 import charset_converter
 import device_info_plus
-import file_picker
+import file_picker_darwin
 import flutter_local_notifications
 import flutter_timezone
 import package_info_plus

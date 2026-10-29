@@ -10,13 +10,9 @@ android {
     namespace = "com.lhg.notee"
     compileSdk = 36
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
         isCoreLibraryDesugaringEnabled = true
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -53,6 +49,11 @@ android {
         }
     }
 
+}
+
+kotlin {
+    // 系统只有 JDK 21，直接让 Kotlin 也用它；compileOptions 已设 sourceCompatibility=21
+    jvmToolchain(21)
 }
 
 dependencies {

@@ -553,15 +553,14 @@ class RecordImport {
   ) async {
     if (!context.mounted) return;
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowMultiple: true,
         allowedExtensions: ['md', 'txt'],
       );
-      if (result == null) return;
+      if (result.isEmpty) return;
 
       final seeds = <String, (String, String)>{};
-      for (final file in result.files) {
+      for (final file in result) {
         final filePath = file.path;
         if (filePath == null) continue;
         final ext = file.extension?.toLowerCase() ??
@@ -595,7 +594,7 @@ class RecordImport {
     String folderPath,
   ) async {
     if (!context.mounted) return;
-    final picked = await FilePicker.platform.getDirectoryPath();
+    final picked = await FilePicker.getDirectoryPath();
     if (picked == null || picked.isEmpty) return;
 
     final rootDir = Directory(picked);
@@ -819,7 +818,7 @@ class RecordExport {
     List<TreeContentFile> files,
     String root,
   ) async {
-    final picked = await FilePicker.platform.getDirectoryPath(dialogTitle: l10n.exportSelectFolder);
+    final picked = await FilePicker.getDirectoryPath(dialogTitle: l10n.exportSelectFolder);
     if (picked == null) return;
 
     String resolvedTarget;
