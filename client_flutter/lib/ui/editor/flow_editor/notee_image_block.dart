@@ -294,11 +294,8 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
     Widget child = Padding(padding: padding, child: imageWidget);
 
-    // Absorb pointer events so the editor's selection gesture system never
-    // fires collapsed/non-collapsed selections on this block node — the
-    // editor_state setter guard also rejects them, but absorbing earlier
-    // avoids any IME side-effects (keyboard pop-up etc).
-    child = AbsorbPointer(child: child);
+    // AbsorbPointer 已内聚到 ResizableImage 内部（只包裹图片本体），
+    // edge resize handles 需能收到 pointer 事件才能生效。
 
     // Wrap in GestureDetector to hook both desktop right-click and mobile
     // long-press to our independent context menu (no selection required).
