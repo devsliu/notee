@@ -16,6 +16,7 @@ import 'package:notee/filesync/table_record.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/filesync/sync_exception.dart';
 import 'package:notee/filesync/user.dart';
+import 'package:notee/utils/serial_task_queue.dart';
 class SyncState {
   static const int idle = 0;
   static const int syncing = 1;
@@ -39,8 +40,8 @@ class SyncEngine {
   RecordTree? recordTree;
   final ValueNotifier<SyncState> syncStateNotifier;
 
-  int _syncCount = 0; // 0=idle, 1=syncing, 2=syncing+queued
-  Completer<void>? _syncTask;
+  final _syncQueue = SingleSerialTaskQueue();
+  bool _pendingForcePull = false;
   DateTime? _lastSuccessfulPullTime;
   final Duration _syncInterval = Duration(minutes: 1);
   bool _closed = false;
@@ -57,14 +58,12 @@ class SyncEngine {
     // Repository.close() shuts down the db. Closing the db mid-transaction
     // causes CouldNotRollBackException and an unhandled "database already
     // closed" error in drift's isolate. The HTTP request in flight will
-    // complete (subject to _receiveTimeout), then the loop exits on _closed.
-    if (_syncTask != null) {
-      await _syncTask!.future;
-    }
+    // complete (subject to _receiveTimeout), then the queue drains on _closed.
+    await _syncQueue.wait();
   }
 
   Future<void> waitForSync() async {
-    if (_syncTask != null) await _syncTask!.future;
+    await _syncQueue.wait();
   }
 
   bool shouldSyncFromBackground() {
@@ -73,7 +72,7 @@ class SyncEngine {
   }
 
   // =========================================================================
-  // 🎯 SYNC — full state machine with lock + state + pull + push
+  // 🎯 SYNC — queue-based state machine (lock + state + pull + push)
   // =========================================================================
 
   Future<void> sync(bool forcePull) async {
@@ -86,20 +85,28 @@ class SyncEngine {
       return;
     }
 
-    if (forcePull) _lastSuccessfulPullTime = null;
-
-    // Count +1 (capped at 2). Reentrant callers wait for chain to end, owner starts the chain.
-    if (_syncCount < 2) _syncCount++;
-
-    if (_syncTask != null) {
-      AppLogger.i('SyncEngine', "sync queued (count=$_syncCount) — waiting for current chain");
-      await _syncTask!.future;
-      return;
+    if (forcePull) {
+      _lastSuccessfulPullTime = null;
+      _pendingForcePull = true;
     }
 
-    final done = Completer<void>();
-    _syncTask = done;
-    do {
+    // If a sync is already in flight, coalesce: share the same tail Future.
+    // The _pendingForcePull flag is already set above — the executing task
+    // (or the next queued one) will pick it up before running.
+    final existing = _syncQueue.tail;
+    if (existing != null) {
+      AppLogger.i('SyncEngine', "sync coalesced — waiting for queue tail");
+      return existing;
+    }
+
+    return _syncQueue.submit(() async {
+      // Capture forcePull flag at the START of execution so queued tasks also
+      // pick up forcePull requests made while they were pending.
+      if (_pendingForcePull) {
+        _lastSuccessfulPullTime = null;
+        _pendingForcePull = false;
+      }
+      if (_closed) return;
       try {
         await _runSync();
       } catch (e) {
@@ -113,12 +120,8 @@ class SyncEngine {
             errorCode: SyncException.unknown,
           );
         }
-      } finally {
-        _syncCount--;
       }
-    } while (_syncCount > 0 && !_closed);
-    _syncTask = null;
-    done.complete(); // Wake all reentrant waiters
+    });
   }
 
   Future<void> _runSync() async {
