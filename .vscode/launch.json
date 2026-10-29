@@ -6,6 +6,7 @@
             "request": "launch",
             "type": "dart",
             "cwd": "${workspaceFolder}/client_flutter",
+            "program": "${workspaceFolder}/client_flutter/lib/main.dart",
             "deviceId": "emulator-5554"
         },
         {
@@ -13,6 +14,7 @@
             "request": "launch",
             "type": "dart",
             "cwd": "${workspaceFolder}/client_flutter",
+            "program": "${workspaceFolder}/client_flutter/lib/main.dart",
             "deviceId": "windows",
             "env" : { "HTTP_PROXY" : "http://127.0.0.1:20121" , "HTTPS_PROXY" : "http://127.0.0.1:20121" }
         },
@@ -21,6 +23,7 @@
             "request": "launch",
             "type": "dart",
             "cwd": "${workspaceFolder}/client_flutter",
+            "program": "${workspaceFolder}/client_flutter/lib/main.dart",
             "deviceId": "chrome"
         },
         {

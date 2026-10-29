@@ -93,12 +93,7 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
     // Kick off final save through the global per-uuid queue, then prune orphaned
     // assets ONLY after the last flush completes — intermediate auto-saves must
     // NOT delete images that might still be re-added by undo/redo.
-    saveRecord()?.whenComplete(() {
-      final assetNames = _lastAssetNames;
-      if (assetNames != null) {
-        Repository.get().fileStore?.pruneAssetsKeepOnly(mRecord.uuid, assetNames);
-      }
-    });
+    saveRecordForDispose();
     super.dispose();
   }
 
@@ -304,6 +299,15 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
   // ================================================================
   //  File-level header parsing (moved to record_ext.dart)
   // ================================================================
+
+  Future<void> saveRecordForDispose() async {
+    await saveRecord()?.whenComplete(() {
+      final assetNames = _lastAssetNames;
+      if (assetNames != null) {
+        Repository.get().fileStore?.pruneAssetsKeepOnly(mRecord.uuid, assetNames);
+      }
+    });
+  }
 
   /// Save edit through the global per-uuid queue — same uuid serial, different
   /// uuid parallel. The queue uses dropOldest: rapid edits coalesce so only the

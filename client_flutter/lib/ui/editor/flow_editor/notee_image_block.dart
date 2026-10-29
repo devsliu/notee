@@ -9,7 +9,7 @@ import 'package:notee/config/language_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
-import '../../filesync/file_store.dart';
+import '../../../filesync/file_store.dart';
 
 typedef NoteeAssetResolver = RecordAsset Function(String src);
 

@@ -22,7 +22,7 @@ import 'package:notee/ui/editor/flow_editor/code_block_component.dart';
 import 'package:notee/ui/editor/flow_editor/code_block_toolbar_item.dart';
 import 'package:notee/ui/editor/flow_editor/code_block_newline.dart';
 import 'package:notee/ui/editor/flow_editor/find_replace_bar.dart';
-import 'package:notee/ui/editor/notee_image_block.dart';
+import 'package:notee/ui/editor/flow_editor/notee_image_block.dart';
 import 'package:notee/ui/editor/record_outline_panel.dart';
 import 'package:notee/ui/editor/record_info_dialog.dart';
 import 'package:notee/ui/editor/share_record_dialog.dart';

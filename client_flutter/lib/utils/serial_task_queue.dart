@@ -73,8 +73,10 @@ class SingleSerialTaskQueue {
     _queue.clear();
 
     // 等在飞任务收尾（I/O 可能已开始，让它正常结束）
-    await _currentFuture;
-    _currentFuture = null;
+    if (_currentFuture != null) {
+      await _currentFuture;
+      _currentFuture = null;
+    }
   }
 
   /// 提交一个任务，排到队尾执行。返回这次任务的 Future。

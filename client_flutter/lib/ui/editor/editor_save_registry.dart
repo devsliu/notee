@@ -22,7 +22,7 @@ class EditorSaveRegistry extends MultiSerialTaskQueue {
   /// 触发所有活动编辑页保存，等全局队列 drain。
   Future<void> flushAll() async {
     for (final editor in _liveEditors.toList()) {
-      editor.saveRecord();
+      editor.saveRecordForDispose();  
     }
     await drainAll();
   }
