@@ -32,12 +32,7 @@ class NoteeImageBlockBuilder extends BlockComponentBuilder {
     return NoteeImageBlockWidget(
       key: node.key,
       node: node,
-      showActions: showActions(node),
       configuration: configuration,
-      actionBuilder: (context, state) =>
-          actionBuilder(blockComponentContext, state),
-      actionTrailingBuilder: (context, state) =>
-          actionTrailingBuilder(blockComponentContext, state),
       fileStore: fileStore,
       srcResolver: srcResolver,
     );
@@ -52,9 +47,6 @@ class NoteeImageBlockWidget extends BlockComponentStatefulWidget {
   const NoteeImageBlockWidget({
     super.key,
     required super.node,
-    super.showActions,
-    super.actionBuilder,
-    super.actionTrailingBuilder,
     super.configuration = const BlockComponentConfiguration(),
     required this.fileStore,
     required this.srcResolver,
@@ -68,16 +60,12 @@ class NoteeImageBlockWidget extends BlockComponentStatefulWidget {
 }
 
 class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
-    with SelectableMixin, BlockComponentConfigurable {
+    with BlockComponentConfigurable {
   @override
   BlockComponentConfiguration get configuration => widget.configuration;
 
   @override
   Node get node => widget.node;
-
-  final imageKey = GlobalKey();
-
-  RenderBox? get _renderBox => context.findRenderObject() as RenderBox?;
 
   late final editorState = Provider.of<EditorState>(context, listen: false);
 
@@ -200,6 +188,10 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       ],
     ];
 
+    // Clamp menu position inside screen bounds so it doesn't land off-screen
+    // when the user long-presses near an edge.
+    final menuPosition = _clampToScreen(globalPosition);
+
     _menuEntry = OverlayEntry(
       builder: (_) => GestureDetector(
         behavior: HitTestBehavior.translucent,
@@ -208,7 +200,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
           children: [
             Positioned.fill(child: const SizedBox.expand()),
             ContextMenu(
-              position: globalPosition,
+              position: menuPosition,
               editorState: editorState,
               items: items,
               onPressed: _dismissMenu,
@@ -218,6 +210,40 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       ),
     );
     Overlay.of(context).insert(_menuEntry!);
+  }
+
+  /// Prefer showing the menu to the LEFT of the finger, above the finger —
+  /// mirroring how native iOS/Android long-press menus position themselves.
+  /// Flip only when that side doesn't have enough room; if neither side fits,
+  /// clamp to screen edge.
+  Offset _clampToScreen(Offset position) {
+    if (!mounted) return position;
+    final size = MediaQuery.sizeOf(context);
+    const menuW = 160.0;
+    const menuH = 80.0;
+    const margin = 8.0;
+
+    // Horizontal: prefer left side (dx - menuW) if it fits
+    double dx = margin;
+    if (position.dx - menuW >= margin) {
+      dx = position.dx - menuW; // default to LEFT of finger
+    } else if (position.dx + menuW + margin <= size.width) {
+      dx = position.dx; // left didn't fit → fall back to RIGHT
+    } else {
+      dx = position.dx.clamp(margin, size.width - menuW - margin); // neither → clamp
+    }
+
+    // Vertical: prefer above the finger (dy - menuH) if it fits
+    double dy = margin;
+    if (position.dy - menuH >= margin) {
+      dy = position.dy - menuH; // default ABOVE finger
+    } else if (position.dy + menuH + margin <= size.height) {
+      dy = position.dy; // above didn't fit → fall back BELOW
+    } else {
+      dy = position.dy.clamp(margin, size.height - menuH - margin); // neither → clamp
+    }
+
+    return Offset(dx, dy);
   }
 
   @override
@@ -253,26 +279,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       );
     }
 
-    Widget child = Padding(key: imageKey, padding: padding, child: imageWidget);
-
-    child = BlockSelectionContainer(
-      node: node,
-      delegate: this,
-      listenable: editorState.selectionNotifier,
-      remoteSelection: editorState.remoteSelections,
-      blockColor: editorState.editorStyle.selectionColor,
-      supportTypes: const [BlockSelectionType.block],
-      child: child,
-    );
-
-    if (widget.showActions && widget.actionBuilder != null) {
-      child = BlockComponentActionWrapper(
-        node: node,
-        actionBuilder: widget.actionBuilder!,
-        actionTrailingBuilder: widget.actionTrailingBuilder,
-        child: child,
-      );
-    }
+    Widget child = Padding(padding: padding, child: imageWidget);
 
     // Absorb pointer events so the editor's selection gesture system never
     // fires collapsed/non-collapsed selections on this block node — the
@@ -311,59 +318,4 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
           child: Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey),
         ),
       );
-
-  // --- SelectableMixin delegates ---
-
-  @override
-  Position start() => Position(path: widget.node.path);
-
-  @override
-  Position end() => Position(path: widget.node.path, offset: 1);
-
-  @override
-  Position getPositionInOffset(Offset start) => end();
-
-  @override
-  bool get shouldCursorBlink => false;
-
-  @override
-  CursorStyle get cursorStyle => CursorStyle.cover;
-
-  @override
-  Rect getBlockRect({bool shiftWithBaseOffset = false}) {
-    final imageBox = imageKey.currentContext?.findRenderObject();
-    if (imageBox is RenderBox) return Offset.zero & imageBox.size;
-    return Rect.zero;
-  }
-
-  @override
-  Rect? getCursorRectInPosition(Position position,
-      {bool shiftWithBaseOffset = false}) {
-    if (_renderBox == null) return null;
-    final size = _renderBox!.size;
-    return Rect.fromLTWH(-size.width / 2.0, 0, size.width, size.height);
-  }
-
-  @override
-  List<Rect> getRectsInSelection(Selection selection,
-      {bool shiftWithBaseOffset = false}) {
-    if (_renderBox == null) return [];
-    final parentBox = context.findRenderObject();
-    final imageBox = imageKey.currentContext?.findRenderObject();
-    if (parentBox is RenderBox && imageBox is RenderBox) {
-      return [
-        imageBox.localToGlobal(Offset.zero, ancestor: parentBox) &
-            imageBox.size,
-      ];
-    }
-    return [Offset.zero & _renderBox!.size];
-  }
-
-  @override
-  Selection getSelectionInRange(Offset start, Offset end) =>
-      Selection.single(path: widget.node.path, startOffset: 0, endOffset: 1);
-
-  @override
-  Offset localToGlobal(Offset offset, {bool shiftWithBaseOffset = false}) =>
-      _renderBox!.localToGlobal(offset);
 }
