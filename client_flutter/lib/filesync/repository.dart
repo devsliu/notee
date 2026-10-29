@@ -574,7 +574,7 @@ class Repository {
       // re-uploaded on the next push — stale .1 markers would silently skip
       // the upload and orphan images on the server forever.
       await db.updateRecord(uuid, version: record.local.remoteVersion);
-      fileStore.deleteAssetMarkers(uuid);
+      fileStore.pruneAssetMarkers(uuid, null);
       final refreshed = await db.getRecord(uuid);
       if (refreshed != null) await recordTree.insertRecord(refreshed);
       AppLogger.i(
@@ -594,7 +594,7 @@ class Repository {
       try {
         final basePath = fileStore.getBaseFile(uuid);
         final remoteAssets = RecordSections.extractAssetNamesFromPath(basePath).toSet();
-        fileStore.pruneAssetsKeepOnly(uuid, remoteAssets);
+        fileStore.pruneAssetsFiles(uuid, remoteAssets);
       } catch (e) {
         AppLogger.e('Repository', "resolveConflict keepRemote uuid=$uuid asset prune failed: $e");
         // Prune failure is non-fatal — leave assets as-is, user can re-sync

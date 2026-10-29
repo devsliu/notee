@@ -304,7 +304,7 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
     await saveRecord()?.whenComplete(() {
       final assetNames = _lastAssetNames;
       if (assetNames != null) {
-        Repository.get().fileStore?.pruneAssetsKeepOnly(mRecord.uuid, assetNames);
+        Repository.get().fileStore?.pruneAssetsFiles(mRecord.uuid, assetNames);
       }
     });
   }
@@ -323,6 +323,9 @@ abstract class BaseRecordEditPageState<T extends BaseRecordEditPage> extends Bas
       name = RecordUtils.generateRecordName();
     }
     _lastAssetNames = assetNames.toSet();
+
+    // 每次保存都要删除已上传标记, 否则如果附件删除又撤回的话, 删除的时候服务端删除了附件, 撤回的时候发现又标记, 又无法上传导致附件丢失
+    Repository.get().fileStore?.pruneAssetMarkers(mRecord.uuid, _lastAssetNames);
 
     EditorSaveRegistry.instance.submit(mRecord.uuid, () async {
       await saveWorkFile(

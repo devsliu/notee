@@ -187,12 +187,15 @@ class FileStore {
   /// deletes its copy of the assets, so if the user restores from recycle bin
   /// the images must be re-uploaded. Leaving stale .1 markers would silently
   /// skip the re-upload and permanently orphan the images on the server.
-  void deleteAssetMarkers(String uuid) {
+  void pruneAssetMarkers(String uuid, Set<String>? keep) {
     final dir = Directory(getAssetDir(uuid));
     if (!dir.existsSync()) return;
     try {
       for (final entity in dir.listSync()) {
         if (entity is File && entity.path.endsWith('.1')) {
+          if (keep != null && keep.contains(p.basename(entity.path).substring(0, p.basename(entity.path).length - 2))) {
+            continue;
+          }
           entity.deleteSync();
         }
       }
@@ -207,7 +210,7 @@ class FileStore {
   ///
   /// Used at keepRemote conflict resolution: the remote version's asset list
   /// wins, so we prune local additions that did not make it to the server.
-  void pruneAssetsKeepOnly(String uuid, Set<String> keep) {
+  void pruneAssetsFiles(String uuid, Set<String> keep) {
     final dir = Directory(getAssetDir(uuid));
     if (!dir.existsSync()) return;
     try {

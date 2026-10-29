@@ -498,7 +498,7 @@ class SyncEngine {
           fileStore.deleteBaseFile(entry.local.uuid);
           fileStore.deleteWorkFile(entry.local.uuid);
           //dont delete asset files, only delete markers, so restore can re-upload assets
-          fileStore.deleteAssetMarkers(entry.local.uuid);
+          fileStore.pruneAssetMarkers(entry.local.uuid, null);
           pushedDeletes++;
           logs.add(
             "delete record ${entry.local.uuid} ${entry.local.path}${entry.local.name} version:${entry.local.remoteVersion}",
@@ -508,7 +508,7 @@ class SyncEngine {
           try {
             fileStore.moveRecyclerFileToWork(entry.local.uuid);
             await db.deleteRecycleRecord(entry.local.uuid);
-            fileStore.deleteAssetMarkers(entry.local.uuid);
+            fileStore.pruneAssetMarkers(entry.local.uuid, null);
             logs.add("undo recycler capture uuid=${entry.local.uuid}");
           } catch (e) {
             logs.add("undo recycler capture failed uuid=${entry.local.uuid}: $e");
