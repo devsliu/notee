@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../../../filesync/file_store.dart';
+import 'notee_resizable_image.dart';
 
 typedef NoteeAssetResolver = RecordAsset Function(String src);
 
@@ -277,9 +278,8 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     } else if (_downloadError) {
       imageWidget = _buildError(width, height);
     } else {
-      final displaySrc = _resolved.cachePath.isNotEmpty ? _resolved.cachePath : _resolved.src;
-      imageWidget = ResizableImage(
-        src: displaySrc,
+      imageWidget = NoteeResizableImage(
+        image: Image.file(File(_resolved.cachePath.isNotEmpty ? _resolved.cachePath : _resolved.src)),
         width: width,
         height: height,
         editable: editorState.editable,
@@ -289,23 +289,15 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
             ..updateNode(node, {ImageBlockKeys.width: w});
           editorState.apply(transaction);
         },
+        onLongPressStart: (details) => _showImageMenu(details.globalPosition),
+        onSecondaryTapUp: (details) => _showImageMenu(details.globalPosition),
       );
     }
 
-    Widget child = Padding(padding: padding, child: imageWidget);
-
-    // AbsorbPointer 已内聚到 ResizableImage 内部（只包裹图片本体），
-    // edge resize handles 需能收到 pointer 事件才能生效。
-
-    // Wrap in GestureDetector to hook both desktop right-click and mobile
-    // long-press to our independent context menu (no selection required).
-    child = GestureDetector(
-      onSecondaryTapUp: (details) => _showImageMenu(details.globalPosition),
-      onLongPressStart: (details) => _showImageMenu(details.globalPosition),
-      child: child,
+    Widget child = Padding(
+      padding: margin + padding,
+      child: imageWidget,
     );
-
-    child = Padding(padding: margin, child: child);
     return child;
   }
 
