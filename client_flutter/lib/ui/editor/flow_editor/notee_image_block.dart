@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../../../filesync/file_store.dart';
+import '../../common/overlay_popup_menu.dart';
 import 'notee_resizable_image.dart';
 
 typedef NoteeAssetResolver = RecordAsset Function(String src);
@@ -168,49 +169,35 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
     HapticFeedback.mediumImpact();
 
-    final items = <List<ContextMenuItem>>[
-      [
-        ContextMenuItem(
-          getName: () => l10n.save,
-          isApplicable: (_) => _sourceLocalFile != null,
-          onPressed: (state) {
+    final menuPosition = _clampToScreen(globalPosition);
+
+    final popupItems = <OverlayPopupMenuItem>[
+      if (_sourceLocalFile != null)
+        OverlayPopupMenuItem(
+          icon: const Icon(Icons.save_outlined, size: 18),
+          label: l10n.save,
+          onTap: () {
             _dismissMenu();
             unawaited(_saveImage());
           },
         ),
-        ContextMenuItem(
-          getName: () => l10n.delete,
-          onPressed: (state) {
-            final transaction = state.transaction..deleteNode(widget.node);
-            state.apply(transaction);
-            _dismissMenu();
-          },
-        ),
-      ],
+      OverlayPopupMenuItem(
+        icon: const Icon(Icons.delete_outline, size: 18),
+        label: l10n.delete,
+        onTap: () {
+          final transaction = editorState.transaction..deleteNode(widget.node);
+          editorState.apply(transaction);
+          _dismissMenu();
+        },
+      ),
     ];
 
-    // Clamp menu position inside screen bounds so it doesn't land off-screen
-    // when the user long-presses near an edge.
-    final menuPosition = _clampToScreen(globalPosition);
-
-    _menuEntry = OverlayEntry(
-      builder: (_) => GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: _dismissMenu,
-        child: Stack(
-          children: [
-            Positioned.fill(child: const SizedBox.expand()),
-            ContextMenu(
-              position: menuPosition,
-              editorState: editorState,
-              items: items,
-              onPressed: _dismissMenu,
-            ),
-          ],
-        ),
-      ),
+    _menuEntry = showOverlayPopup(
+      context: context,
+      position: menuPosition,
+      items: popupItems,
+      onDismiss: () => _menuEntry = null,
     );
-    Overlay.of(context).insert(_menuEntry!);
   }
 
   /// 将菜单位置限制在编辑器可见区域内（editor viewport bounds in screen space）。
@@ -241,7 +228,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
     // 水平：优先显示在点击位置左侧
     if (position.dx - menuW >= availLeft) {
-      dx = position.dx - menuW;
+      dx = position.dx - menuW / 2;
     } else if (position.dx + margin + menuW <= availRight) {
       dx = position.dx; // 左侧放不下 → 翻到右侧
     } else {
@@ -250,7 +237,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
     // 垂直：优先显示在点击位置上方
     if (position.dy - menuH >= availTop) {
-      dy = position.dy - menuH;
+      dy = position.dy - menuH * 0.8;
     } else if (position.dy + margin + menuH <= availBottom) {
       dy = position.dy; // 上方放不下 → 翻到下方
     } else {

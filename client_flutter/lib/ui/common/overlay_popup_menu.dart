@@ -1,5 +1,56 @@
 import 'package:flutter/material.dart';
 
+/// Show a non-modal popup overlay at [position]. Taps outside dismiss
+/// AND continue propagating to widgets below (translucent behavior).
+/// Returns the [OverlayEntry] so caller can remove it explicitly.
+OverlayEntry showOverlayPopup({
+  required BuildContext context,
+  required Offset position,
+  required List<OverlayPopupMenuItem> items,
+  Color? highlightColor,
+  Color? backgroundColor,
+  TextStyle? labelStyle,
+  double minWidth = 140,
+  VoidCallback? onDismiss,
+}) {
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => Stack(
+      children: [
+        Positioned.fill(
+          child: Listener(
+            onPointerDown: (_) {
+              onDismiss?.call();
+              entry.remove();
+            },
+            behavior: HitTestBehavior.translucent,
+            child: const SizedBox.expand(),
+          ),
+        ),
+        Positioned(
+          left: position.dx,
+          top: position.dy,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: minWidth),
+            child: _MenuCard(
+              items: items,
+              highlightColor: highlightColor,
+              backgroundColor: backgroundColor,
+              labelStyle: labelStyle,
+              onClose: () {
+                onDismiss?.call();
+                entry.remove();
+              },
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  Overlay.of(context).insert(entry);
+  return entry;
+}
+
 /// A menu row item consumed by [OverlayPopupMenu].
 class OverlayPopupMenuItem {
   const OverlayPopupMenuItem({
@@ -47,43 +98,21 @@ class _OverlayPopupMenuState extends State<OverlayPopupMenu> {
   void _open() {
     if (_entry != null) return;
     final items = widget.items ?? widget.itemsBuilder?.call() ?? const [];
-    final overlay = Overlay.of(context);
     final renderBox = context.findRenderObject() as RenderBox;
-    final overlayBox = overlay.context.findRenderObject() as RenderBox;
+    final overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
     final anchor = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
-    final size = renderBox.size;
+    final position = anchor + Offset(widget.offset.dx, renderBox.size.height + widget.offset.dy);
 
-    _entry = OverlayEntry(
-      builder: (overlayCtx) {
-        return Stack(
-          children: [
-            // Translucent: outside tap closes AND continues propagating down.
-            Positioned.fill(
-              child: Listener(
-                onPointerDown: (_) => _close(),
-                behavior: HitTestBehavior.translucent,
-                child: const SizedBox.expand(),
-              ),
-            ),
-            Positioned(
-              left: anchor.dx + widget.offset.dx,
-              top: anchor.dy + size.height + widget.offset.dy,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: widget.minWidth),
-                child: _MenuCard(
-                  items: items,
-                  highlightColor: widget.highlightColor,
-                  backgroundColor: widget.backgroundColor,
-                  labelStyle: widget.labelStyle,
-                  onClose: _close,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+    _entry = showOverlayPopup(
+      context: context,
+      position: position,
+      items: items,
+      highlightColor: widget.highlightColor,
+      backgroundColor: widget.backgroundColor,
+      labelStyle: widget.labelStyle,
+      minWidth: widget.minWidth,
+      onDismiss: () => _entry = null,
     );
-    overlay.insert(_entry!);
   }
 
   void _close() {

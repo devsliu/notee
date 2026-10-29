@@ -293,7 +293,7 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
   }
 
   List<ToolbarItem> get _toolbarItems {
-    final desktop = false;
+    final desktop = Utils.isDesktop();
     return [
       undoToolbarItem,
       redoToolbarItem,
