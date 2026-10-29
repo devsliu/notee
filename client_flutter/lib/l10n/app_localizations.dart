@@ -1801,6 +1801,18 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'用户数据加载中'**
   String get loadingUserData;
+
+  /// No description provided for @image.
+  ///
+  /// In zh, this message translates to:
+  /// **'图片'**
+  String get image;
+
+  /// No description provided for @codeBlock.
+  ///
+  /// In zh, this message translates to:
+  /// **'代码块'**
+  String get codeBlock;
 }
 
 class _AppLocalizationsDelegate

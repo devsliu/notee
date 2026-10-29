@@ -390,7 +390,7 @@ ToolbarItem buildImageToolbarItem({required ImageAssetBuilder buildAsset}) => To
       },
     );
     if (tooltipBuilder != null) {
-      return tooltipBuilder(context, 'editor.image', 'Image', child);
+      return tooltipBuilder(context, 'editor.image', l10n.image, child);
     }
     return child;
   },

@@ -915,4 +915,10 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get loadingUserData => '用户数据加载中';
+
+  @override
+  String get image => '图片';
+
+  @override
+  String get codeBlock => '代码块';
 }

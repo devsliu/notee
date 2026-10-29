@@ -1,5 +1,6 @@
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
+import 'package:notee/config/language_manager.dart';
 
 import 'code_block_component.dart';
 
@@ -114,7 +115,7 @@ final ToolbarItem codeBlockItem = ToolbarItem(
     );
 
     if (tooltipBuilder != null) {
-      return tooltipBuilder(context, _kCodeBlockItemId, 'Code Block', child);
+      return tooltipBuilder(context, _kCodeBlockItemId, l10n.codeBlock, child);
     }
 
     return child;

@@ -341,5 +341,7 @@
   "account":"账号",
   "addAccount":"添加账号",
   "switchAccountFailed":"切换账号失败",
-  "loadingUserData":"用户数据加载中"
+  "loadingUserData":"用户数据加载中",
+  "image":"图片",
+  "codeBlock":"代码块"
 }

@@ -923,4 +923,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loadingUserData => 'Loading user data...';
+
+  @override
+  String get image => 'Image';
+
+  @override
+  String get codeBlock => 'Code Block';
 }

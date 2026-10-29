@@ -342,5 +342,7 @@
   "account": "Account",
   "addAccount": "Add account",
   "switchAccountFailed": "Failed to switch account",
-  "loadingUserData": "Loading user data..."
+  "loadingUserData": "Loading user data...",
+  "image": "Image",
+  "codeBlock": "Code Block"
 }
