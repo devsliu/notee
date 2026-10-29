@@ -212,35 +212,43 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     Overlay.of(context).insert(_menuEntry!);
   }
 
-  /// Prefer showing the menu to the LEFT of the finger, above the finger —
-  /// mirroring how native iOS/Android long-press menus position themselves.
-  /// Flip only when that side doesn't have enough room; if neither side fits,
-  /// clamp to screen edge.
+  /// 将菜单位置限制在屏幕可用区域内（扣掉 SafeArea + 边距）。
+  /// 同时处理左右/上下放不下时的自动翻转。
   Offset _clampToScreen(Offset position) {
     if (!mounted) return position;
-    final size = MediaQuery.sizeOf(context);
+    final media = MediaQuery.of(context);
+    final size = media.size;
+    final pad = media.padding;
+
+    // 实际菜单尺寸：2 个按钮 + padding，保守估计 200×90
     const menuW = 160.0;
-    const menuH = 80.0;
+    const menuH = 90.0;
     const margin = 8.0;
 
-    // Horizontal: prefer left side (dx - menuW) if it fits
-    double dx = margin;
-    if (position.dx - menuW >= margin) {
-      dx = position.dx - menuW; // default to LEFT of finger
-    } else if (position.dx + menuW + margin <= size.width) {
-      dx = position.dx; // left didn't fit → fall back to RIGHT
+    // 可用区域（扣 safe area + margin）
+    final availLeft = pad.left + margin;
+    final availTop = pad.top + margin;
+    final availRight = size.width - pad.right - margin;
+    final availBottom = size.height - pad.bottom - margin;
+
+    double dx, dy;
+
+    // 水平：优先显示在点击位置左侧（mirror 原生长按菜单）
+    if (position.dx - menuW >= availLeft) {
+      dx = position.dx - menuW;
+    } else if (position.dx + margin + menuW <= availRight) {
+      dx = position.dx; // 左侧放不下 → 翻到右侧
     } else {
-      dx = position.dx.clamp(margin, size.width - menuW - margin); // neither → clamp
+      dx = position.dx.clamp(availLeft, availRight - menuW);
     }
 
-    // Vertical: prefer above the finger (dy - menuH) if it fits
-    double dy = margin;
-    if (position.dy - menuH >= margin) {
-      dy = position.dy - menuH; // default ABOVE finger
-    } else if (position.dy + menuH + margin <= size.height) {
-      dy = position.dy; // above didn't fit → fall back BELOW
+    // 垂直：优先显示在点击位置上方
+    if (position.dy - menuH >= availTop) {
+      dy = position.dy - menuH;
+    } else if (position.dy + margin + menuH <= availBottom) {
+      dy = position.dy; // 上方放不下 → 翻到下方
     } else {
-      dy = position.dy.clamp(margin, size.height - menuH - margin); // neither → clamp
+      dy = position.dy.clamp(availTop, availBottom - menuH);
     }
 
     return Offset(dx, dy);
