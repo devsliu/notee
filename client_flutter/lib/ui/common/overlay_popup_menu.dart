@@ -188,14 +188,13 @@ class _OverlayPopupMenuState extends State<OverlayPopupMenu> {
     final items = widget.items ?? widget.itemsBuilder?.call() ?? const [];
     final renderBox = context.findRenderObject() as RenderBox;
     final overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
-    // Compute button rect in overlay coordinates, shifted down like
-    // PopupMenuPosition.under does in PopupMenuButton.
+    // Anchor is the button rect in overlay coords, exactly like PopupMenuButton.
     final buttonTopLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
-    final anchor = buttonTopLeft + Offset(widget.offset.dx, renderBox.size.height + widget.offset.dy);
+    final position = buttonTopLeft + widget.offset;
 
     _entry = showOverlayPopup(
       context: context,
-      position: anchor,
+      position: position,
       anchorSize: renderBox.size,
       items: items,
       highlightColor: widget.highlightColor,
