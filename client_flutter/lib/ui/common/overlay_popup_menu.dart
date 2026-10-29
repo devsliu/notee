@@ -103,10 +103,11 @@ class _PopupMenuRouteLayout extends SingleChildLayoutDelegate {
     // Vertical: prefer below anchor, flip above when below overflows and
     // above has enough space (this is the extension beyond the system
     // PopupMenuButton, which always places below).
-    double y = position.bottom;
+    final anchorRect = position.toRect(Offset.zero & size);
+    double y = anchorRect.bottom;
     if (y + childSize.height > size.height - _kMenuScreenPadding &&
-        position.top - childSize.height >= _kMenuScreenPadding) {
-      y = position.top - childSize.height;
+        anchorRect.top - childSize.height >= _kMenuScreenPadding) {
+      y = anchorRect.top - childSize.height;
     }
 
     final wantedPosition = Offset(x, y);
