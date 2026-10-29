@@ -40,26 +40,20 @@ class SyncEngine {
   RecordTree? recordTree;
   final ValueNotifier<SyncState> syncStateNotifier;
 
-  final _syncQueue = SingleSerialTaskQueue();
+  final _syncQueue = SingleSerialTaskQueue(maxPending: 1);
   bool _pendingForcePull = false;
   DateTime? _lastSuccessfulPullTime;
   final Duration _syncInterval = Duration(minutes: 1);
-  bool _closed = false;
 
   DateTime? get lastSuccessfulPullTime => _lastSuccessfulPullTime;
 
   SyncEngine({required this.db, required this.fileStore, required this.recordTree, required this.syncStateNotifier});
 
   Future<void> close() async {
-    _closed = true;
     recordTree = null;
-    // Await the in-flight sync task so pullRecords/pushRecords finish their
-    // current DB transaction (or bail at the next _closed check) BEFORE
-    // Repository.close() shuts down the db. Closing the db mid-transaction
-    // causes CouldNotRollBackException and an unhandled "database already
-    // closed" error in drift's isolate. The HTTP request in flight will
-    // complete (subject to _receiveTimeout), then the queue drains on _closed.
-    await _syncQueue.wait();
+    // dispose: 拒绝新 submit + 清 pending + 等在飞任务收尾，
+    // 任务内中途检查 _syncQueue.isDisposed 会提前退出长流程。
+    await _syncQueue.dispose();
   }
 
   Future<void> waitForSync() async {
@@ -76,7 +70,7 @@ class SyncEngine {
   // =========================================================================
 
   Future<void> sync(bool forcePull) async {
-    if (_closed) {
+    if (_syncQueue.isDisposed) {
       AppLogger.i('SyncEngine', "sync skipped — engine closed");
       return;
     }
@@ -90,6 +84,11 @@ class SyncEngine {
       _pendingForcePull = true;
     }
 
+    if (_syncQueue.isFull) {
+      AppLogger.i('SyncEngine', "sync skipped — queue full");
+      return;
+    }
+
     return _syncQueue.submit(() async {
       // Capture forcePull flag at the START of execution so queued tasks also
       // pick up forcePull requests made while they were pending.
@@ -97,20 +96,20 @@ class SyncEngine {
         _lastSuccessfulPullTime = null;
         _pendingForcePull = false;
       }
-      if (_closed) return;
+      if (_syncQueue.isDisposed) return;
       try {
         syncStateNotifier.value = SyncState(state: SyncState.syncing);
 
         DateTime now = DateTime.now();
         if (_lastSuccessfulPullTime == null || now.difference(_lastSuccessfulPullTime!) >= _syncInterval) {
-          if (!_closed) await pullRecords();
+          if (!_syncQueue.isDisposed) await pullRecords();
           _lastSuccessfulPullTime = now;
         } else {
           AppLogger.i('SyncEngine', "pull skipped (interval not reached)");
         }
 
-        if (!_closed) await pushRecords();
-        if (_closed) return;
+        if (!_syncQueue.isDisposed) await pushRecords();
+        if (_syncQueue.isDisposed) return;
 
         // Check conflicts again after push
         var conflictList = await db.getConflictRecords();
@@ -299,7 +298,7 @@ class SyncEngine {
     int totalPulled = 0;
 
     while (true) {
-      if (_closed) {
+      if (_syncQueue.isDisposed) {
         AppLogger.w('SyncEngine', "pullRecords aborted — engine closed");
         break;
       }
@@ -337,7 +336,7 @@ class SyncEngine {
       }
     }
 
-    // 仅在全量拉取完整完成时才清理: 若拉取被中断(_closed 或版本号不前进),
+    // 仅在全量拉取完整完成时才清理: 若拉取被中断(_syncQueue.isDisposed 或版本号不前进),
     // 本地仍有未拉取的服务端记录, 此时清理会误删 batchNo 不匹配的有效记录。
     if (isInFullPull) {
       var list =
@@ -442,7 +441,7 @@ class SyncEngine {
     final names = RecordSections.extractAssetNamesFromPath(workFilePath);
     if (names.isEmpty) return;
     for (final name in names) {
-      if (_closed) break;
+      if (_syncQueue.isDisposed) break;
       final localPath = fileStore.getAssetPath(uuid, name);
       if (!File(localPath).existsSync()) continue;
       // Local marker `<name>.1` means the asset is already on the server;
@@ -475,7 +474,7 @@ class SyncEngine {
     // Push deletions first (batch)
     final deleteEntries = await db.getDeleteRecords();
     if (deleteEntries.isNotEmpty) {
-      if (_closed) return;
+      if (_syncQueue.isDisposed) return;
       final items = deleteEntries.map((e) => (uuid: e.local.uuid, version: e.local.remoteVersion)).toList();
       final deleteResp = await HttpApi.deleteRecords(items);
       if (!deleteResp.isSuccess()) {
@@ -533,7 +532,7 @@ class SyncEngine {
 
     final noFileEdits = (await db.getEditRecordsWithoutFileEdit()).where((e) => !e.local.syncConflict).toList();
     if (noFileEdits.isNotEmpty) {
-      if (_closed) return;
+      if (_syncQueue.isDisposed) return;
       final items = noFileEdits.map(_buildUpsertItem).toList();
       final batchResp = await HttpApi.upsertRecords(items);
       if (!batchResp.isSuccess()) {
@@ -570,7 +569,7 @@ class SyncEngine {
 
     // ---- 2. Individual push for edits with file content change ----
     for (var entry in await db.getEditRecordsWithFileEdit()) {
-      if (_closed) return;
+      if (_syncQueue.isDisposed) return;
       if (entry.local.syncConflict) continue;
 
       final file = File(fileStore.getWorkFile(entry.local.uuid));

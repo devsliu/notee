@@ -30,6 +30,7 @@ class SingleSerialTaskQueue {
   final List<_PendingTask> _queue = [];
   bool _running = false;
   Future<void>? _currentFuture;
+  bool _disposed = false;
 
   SingleSerialTaskQueue({
     this.maxPending = 0,
@@ -38,6 +39,10 @@ class SingleSerialTaskQueue {
 
   /// 队列是否空闲（无在飞、无 pending）。
   bool get isIdle => !_running && _queue.isEmpty;
+
+  bool get isFull => maxPending > 0 && _queue.length >= maxPending && _currentFuture != null;
+
+  bool get isDisposed => _disposed;
 
   /// 等待队列 drain（回到空闲）。
   ///
@@ -53,10 +58,34 @@ class SingleSerialTaskQueue {
     }
   }
 
+  /// 关闭队列：拒绝新 submit，丢弃所有 pending 任务（以 [StateError] completeError
+  /// 通知调用方），等在飞任务跑完收尾后返回。
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+
+    // 丢弃所有 pending —— completeError 让等待方知道任务没执行
+    for (final item in _queue) {
+      item.completer.completeError(
+        StateError('SingleSerialTaskQueue disposed before task could run'),
+      );
+    }
+    _queue.clear();
+
+    // 等在飞任务收尾（I/O 可能已开始，让它正常结束）
+    await _currentFuture;
+    _currentFuture = null;
+  }
+
   /// 提交一个任务，排到队尾执行。返回这次任务的 Future。
   ///
   /// 当 [maxPending] 已达上限时按 [overflowStrategy] 处理。
+  /// 若队列已 [dispose]，立即返回一个以 [StateError] 完成的 Future。
   Future<void> submit(Future<void> Function() task) {
+    if (_disposed) {
+      return Future.error(StateError('Cannot submit to disposed SingleSerialTaskQueue'));
+    }
+
     final full = maxPending > 0 && _queue.length >= maxPending && _currentFuture != null;
 
     if (full) {
@@ -82,7 +111,7 @@ class SingleSerialTaskQueue {
   }
 
   void _startNext() {
-    if (_running || _queue.isEmpty) return;
+    if (_running || _queue.isEmpty || _disposed) return;
     _running = true;
     final item = _queue.removeAt(0);
     _currentFuture = item.completer.future;
@@ -151,5 +180,13 @@ class MultiSerialTaskQueue {
       if (futures.isEmpty) return;
       await Future.wait(futures);
     }
+  }
+
+  /// 关闭所有队列。已 dispose 的 key 不再接受 submit，pending 任务被
+  /// completeError，在飞任务让其自然收尾。
+  Future<void> disposeAll() async {
+    final futures = _queues.values.map((q) => q.dispose()).toList();
+    await Future.wait(futures);
+    _queues.clear();
   }
 }
