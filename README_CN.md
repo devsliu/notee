@@ -31,10 +31,10 @@
 
 | 产物 | 大小 |
 |---|---|
-| 服务端二进制 (Linux) | **9.3 MB** |
+| 服务端二进制 (Linux) | **~9.4 MB** |
 | Docker 容器内存 | **~12 MB** |
-| Windows/Linux 客户端 | **~15 MB** |
-| Android APK | **~24 MB** |
+| Windows 客户端 | **~16 MB** |
+| Android APK (arm64-v8a) | **~27 MB** |
 
 ---
 
@@ -219,23 +219,6 @@ latest=1.1.2
 - `file`：版本子目录下的文件名，也是 check 接口构造下载 URL 的依据
 - `updatedAt`：服务端不消费，仅作记录
 
-### 发布新版本
-
-执行 `pack/publish_release.ps1`，传 git tag 和服务端版本目录：
-```powershell
-powershell -ExecutionPolicy Bypass -File pack\publish_release.ps1 -Version 1.1.2 -ServerVersionDir 'Y:\notee\version'
-```
-
-脚本流程：
-1. 打 tag 推送 → GitHub Actions 构建全平台产物
-2. 等 CI 结束，下载产物到 `pack/build/{version}/`
-3. 重命名产物，去掉 `-v{version}` 后缀（版本目录内的安装包不带版本号）
-4. 从 GitHub Release body 生成 `version.json` + `changelog.txt`
-5. 写 `version.ini`（`latest={version}`）
-6. 复制整个版本子目录 + 最新 `version.ini` 到服务端
-
-复制完无需重启服务端 —— 下次客户端 check 直接读新的 `version.ini`，进新版本子目录取元数据。
-
 ---
 
 ## 分享
@@ -303,4 +286,4 @@ http://host:port/note/d/{userId}/{title}.md?token={base64}
 
 ## License
 
-MIT
+[PolyForm Noncommercial License 1.0.0](LICENSE) — 个人和非营利组织免费使用，商业用途需事先书面授权。协议原文见 <https://polyformproject.org/licenses/noncommercial/1.0.0>。

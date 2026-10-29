@@ -30,11 +30,11 @@ Core design:
 ## Size & Footprint
 
 | Artifact | Size |
-|---|---|
-| Server binary (Linux) | **9.3 MB** |
+? |---|---|
+| Server binary (Linux) | **~9.4 MB** |
 | Docker container memory | **~12 MB** |
-| Windows/Linux client | **~15 MB** |
-| Android APK | **~24 MB** |
+| Windows client | **~16 MB** |
+| Android APK (arm64-v8a) | **~27 MB** |
 
 ---
 
@@ -219,23 +219,6 @@ Notes:
 - `file`: filename inside the version subdirectory; the server builds the download URL as `/upgrade/download/{version}/{file}`.
 - `updatedAt`: optional metadata field, the server doesn't consume it.
 
-### Publishing a new release
-
-Run `pack/publish_release.ps1` with a git tag and the server's version directory:
-```powershell
-powershell -ExecutionPolicy Bypass -File pack\publish_release.ps1 -Version 1.1.2 -ServerVersionDir 'Y:\notee\version'
-```
-
-The script:
-1. Tags the repo and pushes → GitHub Actions builds all packages.
-2. Waits for CI, downloads artifacts to `pack/build/{version}/`.
-3. Renames packages to strip the `-v{version}` suffix (files inside a version directory are version-less).
-4. Generates `version.json` + `changelog.txt` from the GitHub Release body.
-5. Writes `version.ini` (`latest={version}`).
-6. Copies the whole release directory plus the updated `version.ini` to the server.
-
-No server restart is needed after copying — the next client check picks up the new `version.ini` and reads the new subdirectory automatically.
-
 ---
 
 ## Share
@@ -303,4 +286,4 @@ Auth-required APIs need headers: `X-User-Id` + `X-Token`.
 
 ## License
 
-MIT
+[PolyForm Noncommercial License 1.0.0](LICENSE) — free for personal and noncommercial use; commercial use requires prior written consent. See <https://polyformproject.org/licenses/noncommercial/1.0.0>.
