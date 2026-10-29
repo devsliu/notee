@@ -169,8 +169,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
     HapticFeedback.mediumImpact();
 
-    final menuPosition = _clampToScreen(globalPosition);
-
     final popupItems = <OverlayPopupMenuItem>[
       if (_sourceLocalFile != null)
         OverlayPopupMenuItem(
@@ -194,57 +192,10 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
     _menuEntry = showOverlayPopup(
       context: context,
-      position: menuPosition,
+      position: globalPosition,
       items: popupItems,
       onDismiss: () => _menuEntry = null,
     );
-  }
-
-  /// 将菜单位置限制在编辑器可见区域内（editor viewport bounds in screen space）。
-  /// 同时处理左右/上下放不下时的自动翻转。
-  Offset _clampToScreen(Offset position) {
-    if (!mounted) return position;
-
-    final editorBox = editorState.renderBox;
-    if (editorBox == null) return position; // 拿不到就不 clamp
-
-    // editor viewport 在屏幕坐标系下的可见矩形
-    final editorRect = Rect.fromPoints(
-      editorBox.localToGlobal(Offset.zero),
-      editorBox.localToGlobal(editorBox.size.bottomRight(Offset.zero)),
-    );
-
-    const menuW = 160.0;
-    const menuH = 90.0;
-    const margin = 8.0;
-
-    // 可用区域：editor 可见矩形 - 边距
-    final availLeft = editorRect.left + margin;
-    final availTop = editorRect.top + margin;
-    final availRight = editorRect.right - margin;
-    final availBottom = editorRect.bottom - margin;
-
-    double dx, dy;
-
-    // 水平：优先显示在点击位置左侧
-    if (position.dx - menuW >= availLeft) {
-      dx = position.dx - menuW / 2;
-    } else if (position.dx + margin + menuW <= availRight) {
-      dx = position.dx; // 左侧放不下 → 翻到右侧
-    } else {
-      dx = position.dx.clamp(availLeft, availRight - menuW);
-    }
-
-    // 垂直：优先显示在点击位置上方
-    if (position.dy - menuH >= availTop) {
-      dy = position.dy - menuH * 0.8;
-    } else if (position.dy + margin + menuH <= availBottom) {
-      dy = position.dy; // 上方放不下 → 翻到下方
-    } else {
-      dy = position.dy.clamp(availTop, availBottom - menuH);
-    }
-
-    return Offset(dx, dy);
   }
 
   @override

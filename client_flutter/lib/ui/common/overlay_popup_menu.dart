@@ -1,54 +1,141 @@
 import 'package:flutter/material.dart';
 
-/// Show a non-modal popup overlay at [position]. Taps outside dismiss
-/// AND continue propagating to widgets below (translucent behavior).
-/// Returns the [OverlayEntry] so caller can remove it explicitly.
+const double _kMenuScreenPadding = 8.0;
+
+/// Show a non-modal popup overlay. Positioning algorithm is identical to
+/// Flutter's native [PopupMenuButton] (see `_PopupMenuRouteLayout`).
+/// Taps outside dismiss AND continue propagating to widgets below
+/// (translucent behavior). Returns the [OverlayEntry] so caller can remove
+/// it explicitly.
 OverlayEntry showOverlayPopup({
   required BuildContext context,
   required Offset position,
   required List<OverlayPopupMenuItem> items,
+  Size anchorSize = const Size(0, 0),
   Color? highlightColor,
   Color? backgroundColor,
   TextStyle? labelStyle,
   double minWidth = 140,
   VoidCallback? onDismiss,
 }) {
+  final overlay = Overlay.of(context);
+  final overlayBox = overlay.context.findRenderObject() as RenderBox;
+  // Build RelativeRect exactly like PopupMenuButton does.
+  final relativeRect = RelativeRect.fromRect(
+    Rect.fromPoints(position, position + Offset(anchorSize.width, anchorSize.height)),
+    Offset.zero & overlayBox.size,
+  );
+
   late final OverlayEntry entry;
+
+  Widget buildMenu() {
+    return ConstrainedBox(
+      constraints: BoxConstraints(minWidth: minWidth),
+      child: _MenuCard(
+        items: items,
+        highlightColor: highlightColor,
+        backgroundColor: backgroundColor,
+        labelStyle: labelStyle,
+        onClose: () {
+          onDismiss?.call();
+          entry.remove();
+        },
+      ),
+    );
+  }
+
   entry = OverlayEntry(
-    builder: (_) => Stack(
-      children: [
-        Positioned.fill(
-          child: Listener(
-            onPointerDown: (_) {
-              onDismiss?.call();
-              entry.remove();
-            },
-            behavior: HitTestBehavior.translucent,
-            child: const SizedBox.expand(),
-          ),
-        ),
-        Positioned(
-          left: position.dx,
-          top: position.dy,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: minWidth),
-            child: _MenuCard(
-              items: items,
-              highlightColor: highlightColor,
-              backgroundColor: backgroundColor,
-              labelStyle: labelStyle,
-              onClose: () {
+    builder: (_) {
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: Listener(
+              onPointerDown: (_) {
                 onDismiss?.call();
                 entry.remove();
               },
+              behavior: HitTestBehavior.translucent,
+              child: const SizedBox.expand(),
             ),
           ),
-        ),
-      ],
-    ),
+          CustomSingleChildLayout(
+            delegate: _PopupMenuRouteLayout(position: relativeRect),
+            child: buildMenu(),
+          ),
+        ],
+      );
+    },
   );
-  Overlay.of(context).insert(entry);
+  overlay.insert(entry);
   return entry;
+}
+
+// Positioning of the menu on the screen — cloned from Flutter's
+// _PopupMenuRouteLayout (popup_menu.dart).
+class _PopupMenuRouteLayout extends SingleChildLayoutDelegate {
+  _PopupMenuRouteLayout({required this.position});
+
+  // Rectangle of underlying button, relative to the overlay's dimensions.
+  final RelativeRect position;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    // The menu can be at most the size of the overlay minus 8.0 pixels in each
+    // direction.
+    return BoxConstraints.loose(constraints.biggest).deflate(const EdgeInsets.all(_kMenuScreenPadding));
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    // Horizontal algorithm: grow to the side with more room (identical to
+    // Flutter's _PopupMenuRouteLayout).
+    double x;
+    if (position.left > position.right) {
+      // Menu button is closer to the right edge, so grow to the left, aligned to the right edge.
+      x = size.width - position.right - childSize.width;
+    } else if (position.left < position.right) {
+      // Menu button is closer to the left edge, so grow to the right, aligned to the left edge.
+      x = position.left;
+    } else {
+      x = position.left;
+    }
+
+    // Vertical: prefer below anchor, flip above when below overflows and
+    // above has enough space (this is the extension beyond the system
+    // PopupMenuButton, which always places below).
+    double y = position.bottom;
+    if (y + childSize.height > size.height - _kMenuScreenPadding &&
+        position.top - childSize.height >= _kMenuScreenPadding) {
+      y = position.top - childSize.height;
+    }
+
+    final wantedPosition = Offset(x, y);
+    final screen = Offset.zero & size;
+    return _fitInsideScreen(screen, childSize, wantedPosition);
+  }
+
+  Offset _fitInsideScreen(Rect screen, Size childSize, Offset wantedPosition) {
+    double x = wantedPosition.dx;
+    double y = wantedPosition.dy;
+    // Avoid going outside an area defined as the rectangle 8.0 pixels from the
+    // edge of the screen in every direction.
+    if (x < screen.left + _kMenuScreenPadding) {
+      x = screen.left + _kMenuScreenPadding;
+    } else if (x + childSize.width > screen.right - _kMenuScreenPadding) {
+      x = screen.right - childSize.width - _kMenuScreenPadding;
+    }
+    if (y < screen.top + _kMenuScreenPadding) {
+      y = _kMenuScreenPadding;
+    } else if (y + childSize.height > screen.bottom - _kMenuScreenPadding) {
+      y = screen.bottom - childSize.height - _kMenuScreenPadding;
+    }
+    return Offset(x, y);
+  }
+
+  @override
+  bool shouldRelayout(covariant _PopupMenuRouteLayout oldDelegate) {
+    return position != oldDelegate.position;
+  }
 }
 
 /// A menu row item consumed by [OverlayPopupMenu].
@@ -100,12 +187,15 @@ class _OverlayPopupMenuState extends State<OverlayPopupMenu> {
     final items = widget.items ?? widget.itemsBuilder?.call() ?? const [];
     final renderBox = context.findRenderObject() as RenderBox;
     final overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final anchor = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
-    final position = anchor + Offset(widget.offset.dx, renderBox.size.height + widget.offset.dy);
+    // Compute button rect in overlay coordinates, shifted down like
+    // PopupMenuPosition.under does in PopupMenuButton.
+    final buttonTopLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final anchor = buttonTopLeft + Offset(widget.offset.dx, renderBox.size.height + widget.offset.dy);
 
     _entry = showOverlayPopup(
       context: context,
-      position: position,
+      position: anchor,
+      anchorSize: renderBox.size,
       items: items,
       highlightColor: widget.highlightColor,
       backgroundColor: widget.backgroundColor,

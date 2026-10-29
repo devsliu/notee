@@ -72,6 +72,7 @@ class EditorTab extends DesktopTab {
           final renderBox = context.findRenderObject() as RenderBox?;
           if (renderBox == null) return;
           final result = await showMenu<int>(
+            popUpAnimationStyle: AnimationStyle.noAnimation,
             context: context,
             position: RelativeRect.fromRect(
               renderBox.localToGlobal(Offset.zero) & renderBox.size,
