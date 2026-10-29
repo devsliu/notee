@@ -40,7 +40,7 @@ class SyncEngine {
   RecordTree? recordTree;
   final ValueNotifier<SyncState> syncStateNotifier;
 
-  final _syncQueue = SingleSerialTaskQueue(maxPending: 1);
+  final _syncQueue = SingleSerialTaskQueue(maxPending: 1, overflowStrategy: QueueOverflowStrategy.rejectNew);
   bool _pendingForcePull = false;
   DateTime? _lastSuccessfulPullTime;
   final Duration _syncInterval = Duration(minutes: 1);
@@ -86,10 +86,10 @@ class SyncEngine {
 
     if (_syncQueue.isFull) {
       AppLogger.i('SyncEngine', "sync skipped — queue full");
-      return;
+      return _syncQueue.wait();
     }
 
-    return _syncQueue.submit(() async {
+    _syncQueue.submit(() async {
       // Capture forcePull flag at the START of execution so queued tasks also
       // pick up forcePull requests made while they were pending.
       if (_pendingForcePull) {
@@ -137,6 +137,8 @@ class SyncEngine {
         }
       }
     });
+
+    return _syncQueue.wait();
   }
 
   // =========================================================================
