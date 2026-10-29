@@ -212,28 +212,28 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     Overlay.of(context).insert(_menuEntry!);
   }
 
-  /// 将菜单位置限制在屏幕可用区域内（扣掉 SafeArea + 边距）。
+  /// 将菜单位置限制在可见编辑区域内：屏幕 - SafeArea - 软键盘(viewInsets)。
   /// 同时处理左右/上下放不下时的自动翻转。
   Offset _clampToScreen(Offset position) {
     if (!mounted) return position;
     final media = MediaQuery.of(context);
     final size = media.size;
     final pad = media.padding;
+    final inset = media.viewInsets; // 软键盘弹出时 > 0
 
-    // 实际菜单尺寸：2 个按钮 + padding，保守估计 200×90
     const menuW = 160.0;
     const menuH = 90.0;
     const margin = 8.0;
 
-    // 可用区域（扣 safe area + margin）
+    // 可见区域：屏幕 - SafeArea - 键盘 - 边距
     final availLeft = pad.left + margin;
     final availTop = pad.top + margin;
     final availRight = size.width - pad.right - margin;
-    final availBottom = size.height - pad.bottom - margin;
+    final availBottom = size.height - pad.bottom - inset.bottom - margin;
 
     double dx, dy;
 
-    // 水平：优先显示在点击位置左侧（mirror 原生长按菜单）
+    // 水平：优先显示在点击位置左侧
     if (position.dx - menuW >= availLeft) {
       dx = position.dx - menuW;
     } else if (position.dx + margin + menuW <= availRight) {
