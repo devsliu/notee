@@ -175,12 +175,15 @@ class MultiSerialTaskQueue {
   /// 等待所有 key 的队列 drain。
   ///
   /// 外层循环是为了抵抗"等待期间新 key 入队"的竞态；每个队列内部的 [wait]
-  /// 已保证该 key 真正 drain（覆盖在飞 + pending）。
+  /// 已保证该 key 真正 drain（覆盖在飞 + pending）。一轮 drain 之后把已
+  /// 空闲的队列从 map 里移除，避免空队列下一轮又被 collect 进来导致死循环。
   Future<void> drainAll() async {
     while (true) {
       final futures = _queues.values.map((q) => q.wait()).toList();
       if (futures.isEmpty) return;
       await Future.wait(futures);
+      // 清理已空闲的队列，让下一轮能正确判断是否真正全部 drain。
+      _queues.removeWhere((_, q) => q.isIdle);
     }
   }
 

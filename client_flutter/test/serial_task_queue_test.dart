@@ -384,13 +384,26 @@ void main() {
   });
 
   group('MultiSerialTaskQueue — drainAll / disposeAll', () {
-    // NOTE: drainAll() currently has a source bug — queues that drain are
-    // never removed from _queues, so the while-true loop never exits.
-    // Disabled until the source is fixed.
-    //
-    // test('drainAll waits for everything', () async {
-    //   ...
-    // });
+    test('drainAll waits for everything', () async {
+      final q = MultiSerialTaskQueue();
+      const keys = ['x', 'y', 'z'];
+      final done = <String, int>{};
+
+      for (final k in keys) {
+        for (var i = 0; i < 10; i++) {
+          q.submit(k, () async {
+            await Future.delayed(Duration(milliseconds: 3 + i));
+            done[k] = (done[k] ?? 0) + 1;
+          });
+        }
+      }
+
+      await q.drainAll();
+
+      for (final k in keys) {
+        expect(done[k], 10, reason: 'key $k must finish all tasks');
+      }
+    });
 
     test('disposeAll errors pending but lets in-flight finish', () async {
       final q = MultiSerialTaskQueue();
