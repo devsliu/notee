@@ -1,7 +1,9 @@
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // Kotlin Gradle Plugin (kotlin-android) removed: AGP 9.0.1 ships a
+    // built-in Kotlin compiler that handles src/main/kotlin/*.kt (e.g.
+    // MainActivity.kt). Applying the KGP triggers Flutter's migration
+    // warning and will become a hard failure in future Flutter versions.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -49,11 +51,6 @@ android {
         }
     }
 
-}
-
-kotlin {
-    // 系统只有 JDK 21，直接让 Kotlin 也用它；compileOptions 已设 sourceCompatibility=21
-    jvmToolchain(21)
 }
 
 dependencies {
