@@ -303,7 +303,14 @@ class _MenuCard<T> extends StatelessWidget {
               ),
               Divider(height: 1, thickness: 1, color: theme.dividerColor.withAlpha(80)),
             ],
-            for (final item in items) _MenuItem<T>(item: item, onItemTap: onItemTap),
+            for (final item in items)
+              InkWell(
+                onTap: () {
+                  item.onTap?.call();
+                  onItemTap(item.value);
+                },
+                child: item.child,
+              ),
           ],
         ),
       ),
@@ -311,20 +318,3 @@ class _MenuCard<T> extends StatelessWidget {
   }
 }
 
-class _MenuItem<T> extends StatelessWidget {
-  const _MenuItem({required this.item, required this.onItemTap});
-
-  final PopupItem<T> item;
-  final ValueChanged<T?> onItemTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        item.onTap?.call();
-        onItemTap(item.value);
-      },
-      child: item.child,
-    );
-  }
-}
