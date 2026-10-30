@@ -24,7 +24,7 @@ ToolbarItem buildToolbarItemWithMenu({
     id: id,
     group: group,
     builder: (context, editorState, highlightColor, iconColor, tooltipBuilder) {
-      final menu = OverlayPopupMenu(
+      final menu = PopupMenuControl(
         highlightColor: highlightColor,
         itemsBuilder: () => children.map((c) {
           final built = c.builder?.call(context, editorState, highlightColor, iconColor, _wrapLabel) ??

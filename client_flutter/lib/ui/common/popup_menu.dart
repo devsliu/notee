@@ -142,7 +142,7 @@ class _PopupMenuLayout extends SingleChildLayoutDelegate {
   }
 }
 
-/// A menu row item consumed by [OverlayPopupMenu].
+/// A menu row item consumed by [PopupMenuControl].
 class PopupItem<T> {
   const PopupItem({
     required this.icon,
@@ -159,8 +159,8 @@ class PopupItem<T> {
   final VoidCallback? onTap;
 }
 
-class OverlayPopupMenu<T> extends StatefulWidget {
-  const OverlayPopupMenu({
+class PopupMenuControl<T> extends StatefulWidget {
+  const PopupMenuControl({
     super.key,
     this.items,
     this.itemsBuilder,
@@ -184,10 +184,10 @@ class OverlayPopupMenu<T> extends StatefulWidget {
   final double minWidth;
 
   @override
-  State<OverlayPopupMenu<T>> createState() => _OverlayPopupMenuState<T>();
+  State<PopupMenuControl<T>> createState() => _PopupMenuControlState<T>();
 }
 
-class _OverlayPopupMenuState<T> extends State<OverlayPopupMenu<T>> {
+class _PopupMenuControlState<T> extends State<PopupMenuControl<T>> {
   Future<T?>? _future;
   bool _open = false;
 
