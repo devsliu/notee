@@ -1,6 +1,6 @@
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
-import 'package:notee/ui/common/overlay_popup_menu.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 
 class _Labeled extends StatelessWidget {
   const _Labeled({required this.message, required this.child});
@@ -30,7 +30,7 @@ ToolbarItem buildToolbarItemWithMenu({
           final built = c.builder?.call(context, editorState, highlightColor, iconColor, _wrapLabel) ??
               const SizedBox.shrink();
           final inner = _unwrapLabel(built);
-          return OverlayPopupMenuItem(
+          return PopupItem(
             icon: IgnorePointer(child: inner),
             label: _extractLabel(built, c),
             isHighlight: inner is SVGIconItemWidget ? inner.isHighlight : false,

@@ -1,73 +1,72 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 const double _kMenuScreenPadding = 8.0;
 
-/// Show a non-modal popup overlay. Positioning algorithm is identical to
-/// Flutter's native [PopupMenuButton] (see `_PopupMenuRouteLayout`).
-/// Taps outside dismiss AND continue propagating to widgets below
-/// (translucent behavior). Returns the [OverlayEntry] so caller can remove
-/// it explicitly.
-OverlayEntry showOverlayPopup({
+/// Show a popup overlay. Positioning algorithm matches Flutter's native
+/// [PopupMenuButton]. [modal] = true → blocks all events below until dismissed
+/// (tap outside or tap an item). Returns a [Future] that resolves to the
+/// tapped item's value, or null if dismissed by outside tap.
+Future<T?> showPopup<T>({
   required BuildContext context,
   required Offset position,
-  required List<OverlayPopupMenuItem> items,
+  required List<PopupItem<T>> items,
+  Widget? title,
   Size anchorSize = const Size(0, 0),
+  bool modal = false,
   Color? highlightColor,
   Color? backgroundColor,
   TextStyle? labelStyle,
   double minWidth = 140,
-  VoidCallback? onDismiss,
+  double maxWidth = double.infinity,
 }) {
+  final completer = Completer<T?>();
+  late final OverlayEntry entry;
+
+  void dismiss([T? result]) {
+    if (!completer.isCompleted) completer.complete(result);
+    entry.remove();
+  }
+
   final overlay = Overlay.of(context);
   final overlayBox = overlay.context.findRenderObject() as RenderBox;
-  // Build RelativeRect exactly like PopupMenuButton does.
   final relativeRect = RelativeRect.fromRect(
     Rect.fromPoints(position, position + Offset(anchorSize.width, anchorSize.height)),
     Offset.zero & overlayBox.size,
   );
-
-  late final OverlayEntry entry;
-
-  Widget buildMenu() {
-    return ConstrainedBox(
-      constraints: BoxConstraints(minWidth: minWidth),
-      child: _MenuCard(
-        items: items,
-        highlightColor: highlightColor,
-        backgroundColor: backgroundColor,
-        labelStyle: labelStyle,
-        onClose: () {
-          onDismiss?.call();
-          entry.remove();
-        },
-      ),
-    );
-  }
 
   entry = OverlayEntry(
     builder: (_) {
       return Stack(
         children: [
           Positioned.fill(
-            child: Listener(
-              onPointerDown: (_) {
-                onDismiss?.call();
-                entry.remove();
-              },
-              behavior: HitTestBehavior.translucent,
+            child: GestureDetector(
+              onTap: () => dismiss(null),
+              behavior: modal ? HitTestBehavior.opaque : HitTestBehavior.translucent,
               child: const SizedBox.expand(),
             ),
           ),
           CustomSingleChildLayout(
             delegate: _PopupMenuRouteLayout(position: relativeRect),
-            child: buildMenu(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
+              child: _MenuCard<T>(
+                title: title,
+                items: items,
+                highlightColor: highlightColor,
+                backgroundColor: backgroundColor,
+                labelStyle: labelStyle,
+                onItemTap: dismiss,
+              ),
+            ),
           ),
         ],
       );
     },
   );
   overlay.insert(entry);
-  return entry;
+  return completer.future;
 }
 
 // Positioning of the menu on the screen — cloned from Flutter's
@@ -140,26 +139,29 @@ class _PopupMenuRouteLayout extends SingleChildLayoutDelegate {
 }
 
 /// A menu row item consumed by [OverlayPopupMenu].
-class OverlayPopupMenuItem {
-  const OverlayPopupMenuItem({
+class PopupItem<T> {
+  const PopupItem({
     required this.icon,
     required this.label,
+    this.value,
     this.isHighlight = false,
-    required this.onTap,
+    this.onTap,
   });
 
   final Widget icon;
   final String label;
+  final T? value;
   final bool isHighlight;
   final VoidCallback? onTap;
 }
 
-class OverlayPopupMenu extends StatefulWidget {
+class OverlayPopupMenu<T> extends StatefulWidget {
   const OverlayPopupMenu({
     super.key,
     this.items,
     this.itemsBuilder,
     required this.child,
+    this.title,
     this.highlightColor,
     this.backgroundColor,
     this.labelStyle,
@@ -167,9 +169,10 @@ class OverlayPopupMenu extends StatefulWidget {
     this.minWidth = 140,
   }) : assert(items != null || itemsBuilder != null);
 
-  final List<OverlayPopupMenuItem>? items;
-  final List<OverlayPopupMenuItem> Function()? itemsBuilder;
+  final List<PopupItem<T>>? items;
+  final List<PopupItem<T>> Function()? itemsBuilder;
   final Widget child;
+  final Widget? title;
   final Color? highlightColor;
   final Color? backgroundColor;
   final TextStyle? labelStyle;
@@ -177,71 +180,62 @@ class OverlayPopupMenu extends StatefulWidget {
   final double minWidth;
 
   @override
-  State<OverlayPopupMenu> createState() => _OverlayPopupMenuState();
+  State<OverlayPopupMenu<T>> createState() => _OverlayPopupMenuState<T>();
 }
 
-class _OverlayPopupMenuState extends State<OverlayPopupMenu> {
-  OverlayEntry? _entry;
+class _OverlayPopupMenuState<T> extends State<OverlayPopupMenu<T>> {
+  Future<T?>? _future;
+  bool _open = false;
 
-  void _open() {
-    if (_entry != null) return;
+  void _openMenu() {
+    if (_open) return;
+    _open = true;
     final items = widget.items ?? widget.itemsBuilder?.call() ?? const [];
     final renderBox = context.findRenderObject() as RenderBox;
     final overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox;
-    // Anchor is the button rect in overlay coords, exactly like PopupMenuButton.
     final buttonTopLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
     final position = buttonTopLeft + widget.offset;
 
-    _entry = showOverlayPopup(
+    _future = showPopup<T>(
       context: context,
       position: position,
       anchorSize: renderBox.size,
       items: items,
+      title: widget.title,
       highlightColor: widget.highlightColor,
       backgroundColor: widget.backgroundColor,
       labelStyle: widget.labelStyle,
       minWidth: widget.minWidth,
-      onDismiss: () => _entry = null,
     );
-  }
-
-  void _close() {
-    if (_entry != null) {
-      _entry!.remove();
-      _entry = null;
-    }
-  }
-
-  @override
-  void dispose() {
-    _close();
-    super.dispose();
+    _future!.whenComplete(() => _open = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: _open,
+      onTap: _openMenu,
       behavior: HitTestBehavior.opaque,
       child: widget.child,
     );
   }
 }
 
-class _MenuCard extends StatelessWidget {
+class _MenuCard<T> extends StatelessWidget {
   const _MenuCard({
     required this.items,
+    this.title,
     required this.highlightColor,
     required this.backgroundColor,
     required this.labelStyle,
-    required this.onClose,
+    required this.onItemTap,
   });
 
-  final List<OverlayPopupMenuItem> items;
+  final List<PopupItem<T>> items;
+  final Widget? title;
   final Color? highlightColor;
   final Color? backgroundColor;
   final TextStyle? labelStyle;
-  final VoidCallback onClose;
+  final ValueChanged<T?> onItemTap;
 
   @override
   Widget build(BuildContext context) {
@@ -261,12 +255,22 @@ class _MenuCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (title != null) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: DefaultTextStyle(
+                  style: theme.textTheme.labelLarge ?? const TextStyle(),
+                  child: title!,
+                ),
+              ),
+              Divider(height: 1, thickness: 1, color: theme.dividerColor.withAlpha(80)),
+            ],
             for (final item in items)
-              _MenuItem(
+              _MenuItem<T>(
                 item: item,
                 highlightColor: highlightColor,
                 labelStyle: labelStyle,
-                onClose: onClose,
+                onItemTap: onItemTap,
               ),
           ],
         ),
@@ -275,25 +279,25 @@ class _MenuCard extends StatelessWidget {
   }
 }
 
-class _MenuItem extends StatelessWidget {
+class _MenuItem<T> extends StatelessWidget {
   const _MenuItem({
     required this.item,
     required this.highlightColor,
     required this.labelStyle,
-    required this.onClose,
+    required this.onItemTap,
   });
 
-  final OverlayPopupMenuItem item;
+  final PopupItem<T> item;
   final Color? highlightColor;
   final TextStyle? labelStyle;
-  final VoidCallback onClose;
+  final ValueChanged<T?> onItemTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: () {
         item.onTap?.call();
-        onClose();
+        onItemTap(item.value);
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

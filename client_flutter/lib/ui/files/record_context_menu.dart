@@ -7,6 +7,7 @@ import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/ui/common/input_dialog.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:notee/ui/editor/share_record_dialog.dart';
 import 'package:notee/ui/files/record_list_actions.dart';
 import 'package:notee/ui/files/record_io.dart';
@@ -14,7 +15,6 @@ import 'package:notee/ui/files/record_move_dialog.dart';
 import 'package:notee/ui/files/record_multi_select.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/utils/utils.dart';
-import 'package:notee/config/app_env.dart';
 import 'package:flutter/material.dart';
 
 Future<void> showRecordContextMenu(
@@ -25,46 +25,59 @@ Future<void> showRecordContextMenu(
 ) async {
   final isFile = file is TreeContentFile;
   final isFolder = file is TreeContentFolder;
-  final actions = <PopupMenuEntry<String>>[];
+  final fullPath = isFolder ? file.path : '${file.path}${file.name}';
+  final items = <PopupItem>[];
+
+  Icon actionIcon(IconData icon) => Icon(icon, size: 18);
 
   if (isFile) {
-    actions.add(PopupMenuItem<String>(value: 'move', child: Text(l10n.moveRecord)));
+    items.add(PopupItem(icon: actionIcon(Icons.drive_file_move_outline), label: l10n.moveRecord, value: 'move'));
     if (file.locked != 0) {
-      actions.add(PopupMenuItem<String>(value: 'unlock', child: Text(l10n.unlockRecord)));
+      items.add(PopupItem(icon: actionIcon(Icons.lock_open_outlined), label: l10n.unlockRecord, value: 'unlock'));
     } else {
-      actions.add(PopupMenuItem<String>(value: 'lock', child: Text(l10n.lockRecord)));
+      items.add(PopupItem(icon: actionIcon(Icons.lock_outline), label: l10n.lockRecord, value: 'lock'));
     }
-    actions.add(PopupMenuItem<String>(value: 'delete', child: Text(l10n.deleteRecord)));
-    actions.add(PopupMenuItem<String>(value: 'multiSelect', child: Text(l10n.multiSelect)));
-    actions.add(PopupMenuItem<String>(value: 'share', child: Text(l10n.share)));
-    actions.add(PopupMenuItem<String>(value: 'exportMarkdown', child: Text(l10n.exportMd)));
+    items.add(PopupItem(icon: actionIcon(Icons.delete_outline), label: l10n.deleteRecord, value: 'delete'));
+    items.add(
+      PopupItem(icon: actionIcon(Icons.check_box_outlined), label: l10n.multiSelect, value: 'multiSelect'),
+    );
+    items.add(PopupItem(icon: actionIcon(Icons.share_outlined), label: l10n.share, value: 'share'));
+    items.add(
+      PopupItem(icon: actionIcon(Icons.description_outlined), label: l10n.exportMd, value: 'exportMarkdown'),
+    );
   } else {
-    actions.add(PopupMenuItem<String>(value: 'newRecord', child: Text(l10n.newRecord)));
-    actions.add(PopupMenuItem<String>(value: 'newFolder', child: Text(l10n.newFolder)));
-    actions.add(PopupMenuItem<String>(value: 'rename', child: Text(l10n.renameFolder)));
-    actions.add(PopupMenuItem<String>(value: 'move', child: Text(l10n.moveFolder)));
-    actions.add(PopupMenuItem<String>(value: 'delete', child: Text(l10n.deleteFolder)));
-    actions.add(PopupMenuItem<String>(value: 'exportMarkdown', child: Text(l10n.exportMd)));
-    actions.add(PopupMenuItem<String>(value: 'importDocument', child: Text(l10n.importDocument)));
-    actions.add(PopupMenuItem<String>(value: 'importFolder', child: Text(l10n.importFolder)));
+    items.add(PopupItem(icon: actionIcon(Icons.edit_note_outlined), label: l10n.newRecord, value: 'newRecord'));
+    items.add(
+      PopupItem(icon: actionIcon(Icons.create_new_folder_outlined), label: l10n.newFolder, value: 'newFolder'),
+    );
+    items.add(
+      PopupItem(icon: actionIcon(Icons.drive_file_rename_outline), label: l10n.renameFolder, value: 'rename'),
+    );
+    items.add(PopupItem(icon: actionIcon(Icons.move_up), label: l10n.moveFolder, value: 'move'));
+    items.add(PopupItem(icon: actionIcon(Icons.delete_outline), label: l10n.deleteFolder, value: 'delete'));
+    items.add(
+      PopupItem(icon: actionIcon(Icons.description_outlined), label: l10n.exportMd, value: 'exportMarkdown'),
+    );
+    items.add(
+      PopupItem(icon: actionIcon(Icons.upload_file_outlined), label: l10n.importDocument, value: 'importDocument'),
+    );
+    items.add(
+      PopupItem(
+        icon: actionIcon(Icons.create_new_folder_outlined),
+        label: l10n.importFolder,
+        value: 'importFolder',
+      ),
+    );
   }
-  
 
-  // Calculate popup menu position
-  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-  final offset = overlay.localToGlobal(Offset.zero);
-  final menuPosition = RelativeRect.fromLTRB(
-    position.dx + offset.dx,
-    position.dy + offset.dy,
-    overlay.size.width - position.dx - offset.dx,
-    overlay.size.height - position.dy - offset.dy,
-  );
-
-  final result = await showMenu<String>(
+  final result = await showPopup(
+    maxWidth: 200,
+    minWidth: 80,
+    modal: true,
     context: context,
-    position: menuPosition,
-    items: actions,
-    popUpAnimationStyle: AppEnv.menuAnimationStyle,
+    position: position,
+    items: items,
+    title: Text(fullPath, style: const TextStyle(fontSize: 12)),
   );
   if (context.mounted == false || result == null) return;
 

@@ -10,7 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../../../filesync/file_store.dart';
-import '../../common/overlay_popup_menu.dart';
+import '../../common/popup_menu.dart';
 import 'notee_resizable_image.dart';
 
 typedef NoteeAssetResolver = RecordAsset Function(String src);
@@ -75,8 +75,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
   bool _isDownloading = false;
   bool _downloadError = false;
 
-  OverlayEntry? _menuEntry;
-
   @override
   void initState() {
     super.initState();
@@ -85,7 +83,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
   @override
   void dispose() {
-    _menuEntry?.remove();
     super.dispose();
   }
 
@@ -129,11 +126,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     }
   }
 
-  void _dismissMenu() {
-    _menuEntry?.remove();
-    _menuEntry = null;
-  }
-
   /// Best-effort local source file for saving. Returns null when the image
   /// has not been downloaded yet (network URL without a cache file).
   File? get _sourceLocalFile {
@@ -164,37 +156,33 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
   }
 
   void _showImageMenu(Offset globalPosition) {
-    _dismissMenu();
     if (!mounted) return;
 
     HapticFeedback.mediumImpact();
 
-    final popupItems = <OverlayPopupMenuItem>[
+    final popupItems = <PopupItem>[
       if (_sourceLocalFile != null)
-        OverlayPopupMenuItem(
+        PopupItem(
           icon: const Icon(Icons.save_outlined, size: 18),
           label: l10n.save,
           onTap: () {
-            _dismissMenu();
             unawaited(_saveImage());
           },
         ),
-      OverlayPopupMenuItem(
+      PopupItem(
         icon: const Icon(Icons.delete_outline, size: 18),
         label: l10n.delete,
         onTap: () {
           final transaction = editorState.transaction..deleteNode(widget.node);
           editorState.apply(transaction);
-          _dismissMenu();
         },
       ),
     ];
 
-    _menuEntry = showOverlayPopup(
+    showPopup(
       context: context,
       position: globalPosition,
       items: popupItems,
-      onDismiss: () => _menuEntry = null,
     );
   }
 

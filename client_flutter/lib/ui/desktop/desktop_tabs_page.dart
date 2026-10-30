@@ -397,7 +397,7 @@ class _TabDropdown extends StatefulWidget {
 class _TabDropdownState extends State<_TabDropdown> {
   final GlobalKey _arrowKey = GlobalKey();
 
-  void _showPopupMenu() async {
+  void _showPopup() async {
     setState(() {});
     final RenderBox renderBox = _arrowKey.currentContext!.findRenderObject() as RenderBox;
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
@@ -428,7 +428,7 @@ class _TabDropdownState extends State<_TabDropdown> {
                     if (widget.tabs.length > 1) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (mounted) {
-                          _showPopupMenu();
+                          _showPopup();
                         }
                       });
                     }
@@ -462,7 +462,7 @@ class _TabDropdownState extends State<_TabDropdown> {
       visualDensity: VisualDensity.compact,
       constraints: BoxConstraints.tight(Size(40, 40)),
       tooltip: l10n.showAllTabs,
-      onPressed: _showPopupMenu,
+      onPressed: _showPopup,
     );
   }
 }
