@@ -80,6 +80,7 @@ Future<void> showRecordContextMenu(
     maxWidth: 200,
     minWidth: 120,
     modal: true,
+    columns: isFolder ? 2 : 1,
     context: context,
     position: position,
     items: items,

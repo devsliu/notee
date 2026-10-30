@@ -69,7 +69,7 @@ Future<void> _initWindows() async {
   );
   await windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.setResizable(true);
-    await windowManager.setMinimumSize(const Size(600, 400));
+    await windowManager.setMinimumSize(const Size(300, 300));
     await windowManager.setTitle(AppEnv.appTitle);
     if (pos != null && !maximized) {
       await windowManager.setPosition(pos);

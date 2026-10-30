@@ -1,6 +1,9 @@
-import 'dart:async';
+﻿import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+
+import 'group_layout.dart';
 
 const double _kMenuScreenPadding = 8.0;
 
@@ -36,7 +39,9 @@ Future<T?> showPopup<T>({
   Color? backgroundColor,
   double minWidth = 140,
   double maxWidth = double.infinity,
+  int columns = 1,
 }) {
+  assert(columns >= 1);
   final completer = Completer<T?>();
   late final OverlayEntry entry;
   bool isShowning = true;
@@ -61,32 +66,44 @@ Future<T?> showPopup<T>({
 
   final overlay = Overlay.of(context);
   final overlayBox = overlay.context.findRenderObject() as RenderBox;
+  final overlaySize = overlayBox.size;
   final relativeRect = RelativeRect.fromRect(
     Rect.fromPoints(position, position + Offset(anchorSize.width, anchorSize.height)),
-    Offset.zero & overlayBox.size,
+    Offset.zero & overlaySize,
   );
 
   entry = OverlayEntry(
     builder: (_) {
-      return Stack(
+      return CustomMultiChildLayout(
+        delegate: _FullMenuLayoutDelegate(
+          position: relativeRect,
+          columns: columns,
+          minWidth: minWidth,
+          maxWidth: maxWidth,
+          itemCount: currentItems.length,
+          overlaySize: overlaySize,
+        ),
         children: [
-          Positioned.fill(
+          // 全屏透明拦截层
+          LayoutId(
+            id: _FullMenuLayoutDelegate._kHitLayer,
             child: Listener(
               onPointerDown: (_) => dismiss(null),
               behavior: modal ? HitTestBehavior.opaque : HitTestBehavior.translucent,
               child: const SizedBox.expand(),
             ),
           ),
-          CustomSingleChildLayout(
-            delegate: _PopupMenuLayout(position: relativeRect),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
-              child: _MenuCard<T>(
-                title: title,
-                items: currentItems,
-                backgroundColor: backgroundColor,
-                onItemTap: dismiss,
-              ),
+          // 菜单整体：内层 CustomMultiChildLayout 自己处理 Material 背景 + 列布局
+          LayoutId(
+            id: _FullMenuLayoutDelegate._kMenuContent,
+            child: _MenuContent<T>(
+              columns: columns,
+              minWidth: minWidth,
+              maxWidth: maxWidth,
+              title: title,
+              items: currentItems,
+              onItemTap: dismiss,
+              backgroundColor: backgroundColor,
             ),
           ),
         ],
@@ -97,72 +114,304 @@ Future<T?> showPopup<T>({
   return completer.future;
 }
 
-// Positioning of the menu on the screen — cloned from Flutter's
-// _PopupMenuRouteLayout (popup_menu.dart).
-class _PopupMenuLayout extends SingleChildLayoutDelegate {
-  _PopupMenuLayout({required this.position});
+// 外层全屏定位：hit layer + menu content（Material 包着内层布局）
+class _FullMenuLayoutDelegate extends MultiChildLayoutDelegate {
+  _FullMenuLayoutDelegate({
+    required this.position,
+    required this.columns,
+    required this.minWidth,
+    required this.maxWidth,
+    required this.itemCount,
+    required this.overlaySize,
+  });
 
-  // Rectangle of underlying button, relative to the overlay's dimensions.
   final RelativeRect position;
+  final int columns;
+  final double minWidth;
+  final double maxWidth;
+  final int itemCount;
+  final Size overlaySize;
+
+  static const int _kHitLayer = 0;
+  static const int _kMenuContent = 1;
+  static const double _kMenuScreenPadding = 8.0;
 
   @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
-    // The menu can be at most the size of the overlay minus 8.0 pixels in each
-    // direction.
-    return BoxConstraints.loose(constraints.biggest).deflate(const EdgeInsets.all(_kMenuScreenPadding));
+  void performLayout(Size size) {
+    // 1. hit layer
+    if (hasChild(_kHitLayer)) {
+      layoutChild(_kHitLayer, BoxConstraints.tight(overlaySize));
+      positionChild(_kHitLayer, Offset.zero);
+    }
+
+    // 2. menu content：loose [0, overlaySize.width - 2*padding] 让 Material shrink-wrap
+    if (hasChild(_kMenuContent)) {
+      final availWidth = overlaySize.width - 2 * _kMenuScreenPadding;
+      final maxInnerWidth = maxWidth == double.infinity ? availWidth : math.min(maxWidth * columns, availWidth);
+      final c = BoxConstraints(
+        minWidth: 0,
+        maxWidth: maxInnerWidth,
+        minHeight: 0,
+        maxHeight: overlaySize.height,
+      );
+      final menuSize = layoutChild(_kMenuContent, c);
+      final offset = _computeMenuOffset(overlaySize, menuSize);
+      positionChild(_kMenuContent, offset);
+    }
   }
 
-  @override
-  Offset getPositionForChild(Size size, Size childSize) {
-    // Horizontal algorithm: grow to the side with more room (identical to
-    // Flutter's _PopupMenuRouteLayout).
+  Offset _computeMenuOffset(Size screenSize, Size childSize) {
     double x;
     if (position.left > position.right) {
-      // Menu button is closer to the right edge, so grow to the left, aligned to the right edge.
-      x = size.width - position.right - childSize.width;
+      x = screenSize.width - position.right - childSize.width;
     } else if (position.left < position.right) {
-      // Menu button is closer to the left edge, so grow to the right, aligned to the left edge.
       x = position.left;
     } else {
       x = position.left;
     }
-
-    // Vertical: prefer below anchor, flip above when below overflows and
-    // above has enough space (this is the extension beyond the system
-    // PopupMenuButton, which always places below).
-    final anchorRect = position.toRect(Offset.zero & size);
+    final anchorRect = position.toRect(Offset.zero & screenSize);
     double y = anchorRect.bottom;
-    if (y + childSize.height > size.height - _kMenuScreenPadding &&
-        anchorRect.top - childSize.height >= _kMenuScreenPadding) {
+    final below = y + childSize.height > screenSize.height - _kMenuScreenPadding;
+    final aboveOk = anchorRect.top - childSize.height >= _kMenuScreenPadding;
+    if (below && aboveOk) {
       y = anchorRect.top - childSize.height;
     }
-
-    final wantedPosition = Offset(x, y);
-    final screen = Offset.zero & size;
-    return _fitInsideScreen(screen, childSize, wantedPosition);
-  }
-
-  Offset _fitInsideScreen(Rect screen, Size childSize, Offset wantedPosition) {
-    double x = wantedPosition.dx;
-    double y = wantedPosition.dy;
-    // Avoid going outside an area defined as the rectangle 8.0 pixels from the
-    // edge of the screen in every direction.
-    if (x < screen.left + _kMenuScreenPadding) {
-      x = screen.left + _kMenuScreenPadding;
-    } else if (x + childSize.width > screen.right - _kMenuScreenPadding) {
-      x = screen.right - childSize.width - _kMenuScreenPadding;
-    }
-    if (y < screen.top + _kMenuScreenPadding) {
-      y = _kMenuScreenPadding;
-    } else if (y + childSize.height > screen.bottom - _kMenuScreenPadding) {
-      y = screen.bottom - childSize.height - _kMenuScreenPadding;
-    }
+    final originalY = y;
+    // 先算上下限，避免 childSize ≥ screenSize 时 upper < lower 导致 clamp 炸
+    final double xLower = _kMenuScreenPadding;
+    final double xUpper = math.max(xLower, screenSize.width - childSize.width - _kMenuScreenPadding);
+    final double yLower = _kMenuScreenPadding;
+    final double yUpper = math.max(yLower, screenSize.height - childSize.height - _kMenuScreenPadding);
+    x = x.clamp(xLower, xUpper);
+    y = y.clamp(yLower, yUpper);
+    debugPrint('[MenuOffset] anchorTop=${anchorRect.top.toStringAsFixed(0)} anchorBot=${anchorRect.bottom.toStringAsFixed(0)} '
+        'menuH=${childSize.height.toStringAsFixed(0)} menuW=${childSize.width.toStringAsFixed(0)} '
+        'screenH=${screenSize.height.toStringAsFixed(0)} screenW=${screenSize.width.toStringAsFixed(0)} '
+        'below=$below aboveOk=$aboveOk origY=${originalY.toStringAsFixed(0)} finalY=${y.toStringAsFixed(0)}');
     return Offset(x, y);
   }
 
   @override
-  bool shouldRelayout(covariant _PopupMenuLayout oldDelegate) {
-    return position != oldDelegate.position;
+  bool shouldRelayout(covariant _FullMenuLayoutDelegate oldDelegate) {
+    return position != oldDelegate.position ||
+        columns != oldDelegate.columns ||
+        minWidth != oldDelegate.minWidth ||
+        maxWidth != oldDelegate.maxWidth ||
+        itemCount != oldDelegate.itemCount ||
+        overlaySize != oldDelegate.overlaySize;
+  }
+}
+
+// 菜单整体：Material 包着 CustomMultiChildLayout（title/divider/items）
+// Material 拿到外层约束 [0, maxWidth*columns]，shrink-wrap 内部尺寸 → 圆角裁剪生效
+// delegate 手动算位置：title 跨全宽、items 行列排布、同行等高、等列宽
+class _MenuContent<T> extends StatelessWidget {
+  const _MenuContent({
+    required this.columns,
+    required this.minWidth,
+    required this.maxWidth,
+    required this.title,
+    required this.items,
+    required this.onItemTap,
+    required this.backgroundColor,
+  });
+
+  final int columns;
+  final double minWidth;
+  final double maxWidth;
+  final Widget? title;
+  final List<PopupItem<T>> items;
+  final ValueChanged<T?> onItemTap;
+  final Color? backgroundColor;
+
+  Widget _wrapItem(PopupItem<T> item) {
+    // 外层 Material 已提供 ink splash 所需的 Material ancestor
+    return InkWell(
+      onTap: () {
+        item.onTap?.call();
+        onItemTap(item.value);
+      },
+      child: item.child,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final radius = BorderRadius.circular(4);
+    return Material(
+      color: backgroundColor ?? theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(color: theme.dividerColor.withAlpha(200), width: 1),
+      ),
+      elevation: 4,
+      clipBehavior: Clip.antiAlias, // 圆角裁剪 items
+      child: GroupLayout(
+        delegate: _MenuLayoutDelegate(
+          columns: columns,
+          minWidth: minWidth,
+          maxWidth: maxWidth,
+          itemCount: items.length,
+          hasTitle: title != null,
+        ),
+        children: [
+          if (title != null)
+            LayoutId(
+              id: _kTitleId,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: DefaultTextStyle(
+                  style: theme.textTheme.labelLarge ?? const TextStyle(),
+                  child: title!,
+                ),
+              ),
+            ),
+          if (title != null)
+            LayoutId(
+              id: _kDividerId,
+              child: Divider(height: 1, thickness: 1, color: theme.dividerColor.withAlpha(80)),
+            ),
+          for (var i = 0; i < items.length; i++)
+            LayoutId(id: i, child: _wrapItem(items[i])),
+        ],
+      ),
+    );
+  }
+}
+
+const int _kTitleId = -1;
+const int _kDividerId = -2;
+
+// 菜单布局 delegate：title 跨全宽、items 等列宽网格、同行等高
+class _MenuLayoutDelegate extends GroupLayoutDelegate {
+  _MenuLayoutDelegate({
+    required this.columns,
+    required this.minWidth,
+    required this.maxWidth,
+    required this.itemCount,
+    required this.hasTitle,
+  });
+
+  final int columns;
+  final double minWidth;
+  final double maxWidth;
+  final int itemCount;
+  final bool hasTitle;
+
+  @override
+  Size performLayout(BoxConstraints constraints, GroupLayoutChildren c) {
+    final outerMaxW = constraints.maxWidth;
+    final rowCount = (itemCount / columns).ceil();
+    debugPrint('[MenuInner] START outerMaxW=$outerMaxW cols=$columns min=$minWidth max=$maxWidth items=$itemCount hasTitle=$hasTitle');
+
+    // === Pass 1: 全部 loose 测量 ===
+    double titleWidth = 0, titleHeight = 0;
+    if (hasTitle && c.hasChild(_kTitleId)) {
+      final ts = c.layoutChild(_kTitleId, BoxConstraints(
+        minWidth: 0, maxWidth: outerMaxW,
+        minHeight: 0, maxHeight: double.infinity,
+      ));
+      titleWidth = ts.width;
+      titleHeight = ts.height;
+      debugPrint('[MenuInner] title w=$titleWidth h=$titleHeight');
+    }
+
+    final itemHeights = <double>[];
+    double maxItemWidth = 0;
+    for (var i = 0; i < itemCount; i++) {
+      final s = c.layoutChild(i, BoxConstraints(
+        minWidth: 0, maxWidth: outerMaxW / columns,
+        minHeight: 0, maxHeight: double.infinity,
+      ));
+      maxItemWidth = math.max(maxItemWidth, s.width);
+      itemHeights.add(s.height);
+    }
+    debugPrint('[MenuInner] maxItemWidth=$maxItemWidth itemPass1ConstraintMax=${outerMaxW / columns}');
+
+    // 列宽 = max(title 均摊, 最宽 item)，先撑满 minWidth，再限制 maxWidth（有限时）
+    double colWidth = math.max(
+      columns <= 1 ? titleWidth : titleWidth / columns,
+      maxItemWidth,
+    );
+    debugPrint('[MenuInner] colWidth before clamp=$colWidth titlePerCol=${columns <= 1 ? titleWidth : titleWidth / columns}');
+    colWidth = math.max(colWidth, minWidth);
+    if (maxWidth != double.infinity) {
+      colWidth = math.min(colWidth, maxWidth);
+    }
+    debugPrint('[MenuInner] colWidth after clamp=$colWidth');
+
+    // 总宽 = max(列宽总和, title)，硬限制在 outerMaxW（外层给的最大宽度）内
+    double totalWidth = columns <= 1 ? colWidth : colWidth * columns;
+    debugPrint('[MenuInner] totalWidth before title merge=$totalWidth colWidth*cols=${colWidth * columns} titleWidth=$titleWidth');
+    totalWidth = math.max(totalWidth, titleWidth);
+    debugPrint('[MenuInner] totalWidth after title merge=$totalWidth');
+    totalWidth = math.min(totalWidth, outerMaxW);
+    debugPrint('[MenuInner] totalWidth after outerMaxW clamp=$totalWidth outerMaxW=$outerMaxW');
+    colWidth = totalWidth / columns;
+
+    // divider
+    double dividerHeight = 0;
+    if (hasTitle && c.hasChild(_kDividerId)) {
+      dividerHeight = c.layoutChild(_kDividerId, BoxConstraints.tightFor(width: totalWidth)).height;
+    }
+
+    // 每行高度 = 该行最高 item
+    final rowHeights = List<double>.filled(rowCount, 0);
+    for (var r = 0; r < rowCount; r++) {
+      double rh = 0;
+      for (var col = 0; col < columns; col++) {
+        final idx = r * columns + col;
+        if (idx < itemHeights.length) rh = math.max(rh, itemHeights[idx]);
+      }
+      rowHeights[r] = rh;
+    }
+
+    // === Pass 2: item 最终宽高（填满整行，解决 InkWell 半按效果）===
+    final double effectiveColWidth = colWidth;
+    for (var r = 0; r < rowCount; r++) {
+      for (var col = 0; col < columns; col++) {
+        final idx = r * columns + col;
+        if (idx < itemCount) {
+          c.layoutChild(idx, BoxConstraints.tightFor(width: effectiveColWidth, height: rowHeights[r]));
+        }
+      }
+    }
+
+    // 自身尺寸
+    double menuHeight = titleHeight + dividerHeight;
+    for (final rh in rowHeights) {
+      menuHeight += rh;
+    }
+
+    // 定位 children
+    double curY = 0;
+    if (hasTitle && c.hasChild(_kTitleId)) {
+      c.positionChild(_kTitleId, Offset(0, curY));
+      curY += titleHeight;
+    }
+    if (hasTitle && c.hasChild(_kDividerId)) {
+      c.positionChild(_kDividerId, Offset(0, curY));
+      curY += dividerHeight;
+    }
+    for (var r = 0; r < rowCount; r++) {
+      for (var col = 0; col < columns; col++) {
+        final idx = r * columns + col;
+        if (idx < itemCount) c.positionChild(idx, Offset(col * colWidth, curY));
+      }
+      curY += rowHeights[r];
+    }
+
+    return Size(totalWidth, menuHeight);
+  }
+
+  @override
+  bool shouldRelayout(covariant _MenuLayoutDelegate oldDelegate) {
+    return columns != oldDelegate.columns ||
+        minWidth != oldDelegate.minWidth ||
+        maxWidth != oldDelegate.maxWidth ||
+        itemCount != oldDelegate.itemCount ||
+        hasTitle != oldDelegate.hasTitle;
   }
 }
 
@@ -218,6 +467,8 @@ class PopupMenuControl<T> extends StatefulWidget {
     this.backgroundColor,
     this.offset = const Offset(0, 2),
     this.minWidth = 140,
+    this.maxWidth = double.infinity,
+    this.columns = 1,
   }) : assert(items != null || itemsBuilder != null);
 
   final List<PopupItem<T>>? items;
@@ -229,6 +480,8 @@ class PopupMenuControl<T> extends StatefulWidget {
   final Color? backgroundColor;
   final Offset offset;
   final double minWidth;
+  final double maxWidth;
+  final int columns;
 
   @override
   State<PopupMenuControl<T>> createState() => _PopupMenuControlState<T>();
@@ -256,6 +509,8 @@ class _PopupMenuControlState<T> extends State<PopupMenuControl<T>> {
       modal: widget.modal,
       backgroundColor: widget.backgroundColor,
       minWidth: widget.minWidth,
+      maxWidth: widget.maxWidth,
+      columns: widget.columns,
     );
     _future!
         .then((value) {
@@ -269,52 +524,3 @@ class _PopupMenuControlState<T> extends State<PopupMenuControl<T>> {
     return GestureDetector(onTap: _openMenu, behavior: HitTestBehavior.opaque, child: widget.child);
   }
 }
-
-class _MenuCard<T> extends StatelessWidget {
-  const _MenuCard({required this.items, this.title, required this.backgroundColor, required this.onItemTap});
-
-  final List<PopupItem<T>> items;
-  final Widget? title;
-  final Color? backgroundColor;
-  final ValueChanged<T?> onItemTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bg = backgroundColor ?? theme.colorScheme.surface;
-    return Material(
-      color: bg,
-      elevation: 12,
-      shadowColor: Colors.black.withValues(alpha: 0.8),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(4),
-        side: BorderSide(color: theme.dividerColor.withAlpha(200), strokeAlign: BorderSide.strokeAlignCenter),
-      ),
-      child: IntrinsicWidth(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (title != null) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: DefaultTextStyle(style: theme.textTheme.labelLarge ?? const TextStyle(), child: title!),
-              ),
-              Divider(height: 1, thickness: 1, color: theme.dividerColor.withAlpha(80)),
-            ],
-            for (final item in items)
-              InkWell(
-                onTap: () {
-                  item.onTap?.call();
-                  onItemTap(item.value);
-                },
-                child: item.child,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-

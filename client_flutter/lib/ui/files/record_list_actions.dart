@@ -99,6 +99,7 @@ class RecordListActions {
       builder: (context, _, _) {
         if (AppEnv.listPageValue.panelMode == FilesPanelMode.panelModeTag) return SizedBox.shrink();
         return PopupMenuControl<String>(
+          modal: true,
           itemsBuilder: _noteListMenuItems,
           onSelected: (value) {
             if (value == null) return;
@@ -121,6 +122,7 @@ class RecordListActions {
 
   static Widget importExportButton(BuildContext context, ReturnCallback<String> getFolder) {
     return PopupMenuControl<String>(
+      modal: true,
       onSelected: (value) {
         if (value == 'import') {
           RecordImport.pickAndImportDocuments(context, getFolder());
@@ -206,6 +208,7 @@ class RecordListActions {
 
   static Widget languageButton(BuildContext context) {
     return PopupMenuControl<LanguageOption>(
+      modal: true,
       onSelected: (option) async {
         if (option == null) return;
         if (option != LanguageManager.getCurrentLanguage()) {
