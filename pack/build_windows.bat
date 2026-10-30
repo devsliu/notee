@@ -43,7 +43,7 @@ echo Building Windows release...
 echo Command: flutter build windows --release
 for /f %%i in ('git rev-parse --short HEAD') do set GIT_COMMIT=%%i
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH:mm"') do set BUILD_TIME=%%i
-call flutter build windows --release --dart-define=GIT_COMMIT=%GIT_COMMIT% --dart-define=BUILD_TIME=%BUILD_TIME%
+call flutter build windows --release --obfuscate --split-debug-info=build/debug-info/ --dart-define=GIT_COMMIT=%GIT_COMMIT% --dart-define=BUILD_TIME=%BUILD_TIME%
 set WINDOWS_ERROR=!errorlevel!
 echo Windows build exit code: !WINDOWS_ERROR!
 

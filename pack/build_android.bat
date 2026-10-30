@@ -19,7 +19,7 @@ echo Building Android APK...
 echo Command: flutter build apk --release
 for /f %%i in ('git rev-parse --short HEAD') do set GIT_COMMIT=%%i
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH:mm"') do set BUILD_TIME=%%i
-call flutter build apk --release --target-platform android-arm64 --dart-define=GIT_COMMIT=%GIT_COMMIT% --dart-define=BUILD_TIME=%BUILD_TIME%
+call flutter build apk --release --target-platform android-arm64 --obfuscate --split-debug-info=build/debug-info/ --dart-define=GIT_COMMIT=%GIT_COMMIT% --dart-define=BUILD_TIME=%BUILD_TIME%
 set BUILD_ERROR=!errorlevel!
 echo Build exit code: !BUILD_ERROR!
 
