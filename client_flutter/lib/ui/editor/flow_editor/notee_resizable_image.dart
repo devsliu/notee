@@ -55,6 +55,7 @@ class _NoteeResizableImageState extends State<NoteeResizableImage> {
   bool _reveal = false;
   Timer? _revealTimer;
   bool _isDragging = false;
+  bool _dragFromRightHalf = true; // 移动端：起始触摸点在图片右半边还是左半边
 
   @override
   void initState() {
@@ -129,15 +130,25 @@ class _NoteeResizableImageState extends State<NoteeResizableImage> {
           onTap: widget.editable ? _scheduleReveal : null,
           onLongPressStart: widget.onLongPressStart,
           onSecondaryTapUp: widget.onSecondaryTapUp,
-          child: AbsorbPointer(child: widget.image),
+          onHorizontalDragStart: _isMobile && widget.editable
+              ? _handleMobileDragStart
+              : null,
+          onHorizontalDragUpdate: _isMobile && widget.editable
+              ? _handleMobileDragUpdate
+              : null,
+          onHorizontalDragEnd: _isMobile && widget.editable
+              ? _handleMobileDragEnd
+              : null,
+          child: widget.image,
         ),
-        if (widget.editable) ...[
+        // 桌面端：窄边手柄，仅 hover 时显示
+        if (widget.editable && !_isMobile) ...[
           _buildEdgeGesture(
-            left: 15,
+            left: 2,
             onUpdate: (d) => setState(() => moveDistance = d),
           ),
           _buildEdgeGesture(
-            right: 15,
+            right: 2,
             onUpdate: (d) => setState(() => moveDistance = -d),
           ),
         ],
@@ -145,12 +156,38 @@ class _NoteeResizableImageState extends State<NoteeResizableImage> {
     );
   }
 
+  /// 移动端：拖拽起始，记录触摸点在左半边还是右半边
+  void _handleMobileDragStart(DragStartDetails details) {
+    _startDrag();
+    final box = context.findRenderObject() as RenderBox;
+    final localX = box.globalToLocal(details.globalPosition).dx;
+    _dragFromRightHalf = localX > box.size.width / 2;
+    initialOffset = details.globalPosition.dx;
+    moveDistance = 0;
+  }
+
+  /// 移动端：对称规则 — 从哪半边起步，往那边拉就是扩大
+  /// 右半边起步 → 右拉扩、左拉缩；左半边起步 → 左拉扩、右拉缩
+  void _handleMobileDragUpdate(DragUpdateDetails details) {
+    final offset = details.globalPosition.dx - initialOffset;
+    setState(() => moveDistance = _dragFromRightHalf ? -offset : offset);
+  }
+
+  void _handleMobileDragEnd(DragEndDetails details) {
+    imageWidth = max(_kMinWidth, imageWidth - moveDistance);
+    initialOffset = 0;
+    moveDistance = 0;
+    _endDrag();
+    widget.onResize(imageWidth);
+  }
+
   Widget _buildEdgeGesture({
     double? left,
     double? right,
     required void Function(double distance) onUpdate,
   }) {
-    final width = _isMobile ? 24.0 : 5.0;
+    const width = 4.0;
+    const height = 80.0;
     return Positioned(
       top: 0,
       left: left,
@@ -179,11 +216,11 @@ class _NoteeResizableImageState extends State<NoteeResizableImage> {
           child: _reveal
               ? Center(
                   child: Container(
-                    width: _isMobile ? 4 : 2,
-                    height: 40,
+                    width: width,
+                    height: height,
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(5),
+                      borderRadius: BorderRadius.circular(width),
                       border: Border.all(color: Colors.white),
                     ),
                   ),

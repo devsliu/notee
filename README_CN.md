@@ -29,12 +29,14 @@
 
 ## 体积与占用
 
-| 产物 | 大小 |
-|---|---|
-| 服务端二进制 (Linux) | **~9.4 MB** |
-| Docker 容器内存 | **~12 MB** |
-| Windows 客户端 | **~16 MB** |
-| Android APK (arm64-v8a) | **~27 MB** |
+| 产物 | 大小 | 备注 |
+|---|---|---|
+| 服务端二进制 (Linux) | **~9.4 MB** | Go 单二进制 |
+| Docker 容器内存 | **~12 MB** | |
+| Windows 客户端 | **~15 MB** | Release + 混淆 + AppBundle |
+| Linux 客户端 | **~13 MB** | |
+| macOS 客户端 (silicon) | **~26 MB** | |
+| Android APK (arm64-v8a) | **~25 MB** | Release + 混淆 + NDK llvm-strip + 仅 arm64 |
 
 ---
 

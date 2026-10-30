@@ -29,12 +29,14 @@ Core design:
 
 ## Size & Footprint
 
-| Artifact | Size |
-? |---|---|
-| Server binary (Linux) | **~9.4 MB** |
-| Docker container memory | **~12 MB** |
-| Windows client | **~16 MB** |
-| Android APK (arm64-v8a) | **~27 MB** |
+| Artifact | Size | Notes |
+|---|---|---|
+| Server binary (Linux) | **~9.4 MB** | Single Go binary |
+| Docker container memory | **~12 MB** | |
+| Windows client | **~15 MB** | Release + obfuscation + AppBundle |
+| Linux client | **~13 MB** | |
+| macOS client (silicon) | **~26 MB** | |
+| Android APK (arm64-v8a) | **~25 MB** | Release + obfuscation + NDK llvm-strip + arm64 only |
 
 ---
 
