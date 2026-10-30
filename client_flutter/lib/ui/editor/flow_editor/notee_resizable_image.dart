@@ -92,7 +92,7 @@ class _NoteeResizableImageState extends State<NoteeResizableImage> {
     _touchRevealTimer?.cancel();
     setState(() => _touchRevealed = true);
     _touchRevealTimer = Timer(_kRevealDuration, () {
-      if (mounted) setState(() => _touchRevealed = false);
+      if (mounted && moveDistance == 0) setState(() => _touchRevealed = false);
     });
   }
 
@@ -124,9 +124,12 @@ class _NoteeResizableImageState extends State<NoteeResizableImage> {
                 onTap: widget.editable && _isTouchMode ? _revealTouchEdge : null,
                 onLongPressStart: widget.onLongPressStart,
                 onSecondaryTapUp: widget.onSecondaryTapUp,
-                onHorizontalDragStart: widget.editable && _isTouchMode ? _handleTouchDragStart : null,
-                onHorizontalDragUpdate: widget.editable && _isTouchMode ? _handleTouchDragUpdate : null,
-                onHorizontalDragEnd: widget.editable && _isTouchMode ? _handleTouchDragEnd : null,
+                onHorizontalDragStart:
+                    widget.editable && _isTouchMode && _touchRevealed ? _handleTouchDragStart : null,
+                onHorizontalDragUpdate:
+                    widget.editable && _isTouchMode && _touchRevealed ? _handleTouchDragUpdate : null,
+                onHorizontalDragEnd:
+                    widget.editable && _isTouchMode && _touchRevealed ? _handleTouchDragEnd : null,
                 child: widget.image,
               ),
               // 桌面端左右边缘 zone（一个函数 + onUpdate 回调，方向在调用处硬编码）
