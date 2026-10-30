@@ -31,40 +31,46 @@ Future<void> showRecordContextMenu(
   Icon actionIcon(IconData icon) => Icon(icon, size: 18);
 
   if (isFile) {
-    items.add(PopupItem(icon: actionIcon(Icons.drive_file_move_outline), label: l10n.moveRecord, value: 'move'));
+    items.add(PopupItem.simple(icon: actionIcon(Icons.drive_file_move_outline), title: l10n.moveRecord, value: 'move'));
     if (file.locked != 0) {
-      items.add(PopupItem(icon: actionIcon(Icons.lock_open_outlined), label: l10n.unlockRecord, value: 'unlock'));
+      items.add(
+        PopupItem.simple(icon: actionIcon(Icons.lock_open_outlined), title: l10n.unlockRecord, value: 'unlock'),
+      );
     } else {
-      items.add(PopupItem(icon: actionIcon(Icons.lock_outline), label: l10n.lockRecord, value: 'lock'));
+      items.add(PopupItem.simple(icon: actionIcon(Icons.lock_outline), title: l10n.lockRecord, value: 'lock'));
     }
-    items.add(PopupItem(icon: actionIcon(Icons.delete_outline), label: l10n.deleteRecord, value: 'delete'));
+    items.add(PopupItem.simple(icon: actionIcon(Icons.delete_outline), title: l10n.deleteRecord, value: 'delete'));
     items.add(
-      PopupItem(icon: actionIcon(Icons.check_box_outlined), label: l10n.multiSelect, value: 'multiSelect'),
+      PopupItem.simple(icon: actionIcon(Icons.check_box_outlined), title: l10n.multiSelect, value: 'multiSelect'),
     );
-    items.add(PopupItem(icon: actionIcon(Icons.share_outlined), label: l10n.share, value: 'share'));
+    items.add(PopupItem.simple(icon: actionIcon(Icons.share_outlined), title: l10n.share, value: 'share'));
     items.add(
-      PopupItem(icon: actionIcon(Icons.description_outlined), label: l10n.exportMd, value: 'exportMarkdown'),
+      PopupItem.simple(icon: actionIcon(Icons.description_outlined), title: l10n.exportMd, value: 'exportMarkdown'),
     );
   } else {
-    items.add(PopupItem(icon: actionIcon(Icons.edit_note_outlined), label: l10n.newRecord, value: 'newRecord'));
+    items.add(PopupItem.simple(icon: actionIcon(Icons.edit_note_outlined), title: l10n.newRecord, value: 'newRecord'));
     items.add(
-      PopupItem(icon: actionIcon(Icons.create_new_folder_outlined), label: l10n.newFolder, value: 'newFolder'),
+      PopupItem.simple(icon: actionIcon(Icons.create_new_folder_outlined), title: l10n.newFolder, value: 'newFolder'),
     );
     items.add(
-      PopupItem(icon: actionIcon(Icons.drive_file_rename_outline), label: l10n.renameFolder, value: 'rename'),
+      PopupItem.simple(icon: actionIcon(Icons.drive_file_rename_outline), title: l10n.renameFolder, value: 'rename'),
     );
-    items.add(PopupItem(icon: actionIcon(Icons.move_up), label: l10n.moveFolder, value: 'move'));
-    items.add(PopupItem(icon: actionIcon(Icons.delete_outline), label: l10n.deleteFolder, value: 'delete'));
+    items.add(PopupItem.simple(icon: actionIcon(Icons.move_up), title: l10n.moveFolder, value: 'move'));
+    items.add(PopupItem.simple(icon: actionIcon(Icons.delete_outline), title: l10n.deleteFolder, value: 'delete'));
     items.add(
-      PopupItem(icon: actionIcon(Icons.description_outlined), label: l10n.exportMd, value: 'exportMarkdown'),
-    );
-    items.add(
-      PopupItem(icon: actionIcon(Icons.upload_file_outlined), label: l10n.importDocument, value: 'importDocument'),
+      PopupItem.simple(icon: actionIcon(Icons.description_outlined), title: l10n.exportMd, value: 'exportMarkdown'),
     );
     items.add(
-      PopupItem(
+      PopupItem.simple(
+        icon: actionIcon(Icons.upload_file_outlined),
+        title: l10n.importDocument,
+        value: 'importDocument',
+      ),
+    );
+    items.add(
+      PopupItem.simple(
         icon: actionIcon(Icons.create_new_folder_outlined),
-        label: l10n.importFolder,
+        title: l10n.importFolder,
         value: 'importFolder',
       ),
     );

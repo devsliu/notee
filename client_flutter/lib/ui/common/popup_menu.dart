@@ -4,26 +4,44 @@ import 'package:flutter/material.dart';
 
 const double _kMenuScreenPadding = 8.0;
 
+/// Controller for a popup shown by [showPopup]. Lets the caller dismiss the
+/// menu or rebuild its items (e.g. after closing a tab, refresh the list
+/// without closing & re-opening the popup).
+class PopupMenuController<T> {
+  void Function([T? result])? _dismiss;
+  void Function(List<PopupItem<T>>)? _rebuild;
+
+  /// Close the popup, completing the future with [result].
+  void dismiss([T? result]) => _dismiss?.call(result);
+
+  /// Replace the menu items with [items] and repaint.
+  void rebuild(List<PopupItem<T>> items) => _rebuild?.call(items);
+}
+
 /// Show a popup overlay. Positioning algorithm matches Flutter's native
 /// [PopupMenuButton]. [modal] = true → blocks all events below until dismissed
 /// (tap outside or tap an item). Returns a [Future] that resolves to the
 /// tapped item's value, or null if dismissed by outside tap.
+///
+/// Pass [controller] to dismiss or rebuild the popup from outside (e.g. a
+/// close button inside an item).
 Future<T?> showPopup<T>({
   required BuildContext context,
   required Offset position,
   required List<PopupItem<T>> items,
+  PopupMenuController<T>? controller,
   Widget? title,
   Size anchorSize = const Size(0, 0),
   bool modal = false,
-  Color? highlightColor,
   Color? backgroundColor,
-  TextStyle? labelStyle,
   double minWidth = 140,
   double maxWidth = double.infinity,
 }) {
   final completer = Completer<T?>();
   late final OverlayEntry entry;
   bool isShowning = true;
+
+  List<PopupItem<T>> currentItems = items;
 
   void dismiss([T? result]) {
     if (!completer.isCompleted) completer.complete(result);
@@ -32,6 +50,14 @@ Future<T?> showPopup<T>({
     }
     isShowning = false;
   }
+
+  void rebuild(List<PopupItem<T>> items) {
+    currentItems = items;
+    entry.markNeedsBuild();
+  }
+
+  controller?._dismiss = dismiss;
+  controller?._rebuild = rebuild;
 
   final overlay = Overlay.of(context);
   final overlayBox = overlay.context.findRenderObject() as RenderBox;
@@ -57,10 +83,8 @@ Future<T?> showPopup<T>({
               constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
               child: _MenuCard<T>(
                 title: title,
-                items: items,
-                highlightColor: highlightColor,
+                items: currentItems,
                 backgroundColor: backgroundColor,
-                labelStyle: labelStyle,
                 onItemTap: dismiss,
               ),
             ),
@@ -143,19 +167,42 @@ class _PopupMenuLayout extends SingleChildLayoutDelegate {
 }
 
 /// A menu row item consumed by [PopupMenuControl].
+/// Only stores [child] — all layout details are owned by the caller or the
+/// [simple] factory for the common icon + label case.
 class PopupItem<T> {
-  const PopupItem({
-    required this.icon,
-    required this.label,
-    this.value,
-    this.isHighlight = false,
-    this.onTap,
-  });
+  const PopupItem({required this.child, this.value, this.onTap});
 
-  final Widget icon;
-  final String label;
+  /// Shortcut factory: icon + title. For custom layouts (e.g. trailing
+  /// buttons) pass a fully-built child directly to the main constructor.
+  factory PopupItem.simple({Widget? icon, required String title, T? value, VoidCallback? onTap}) {
+    return PopupItem.simple2(
+      icon: icon,
+      title: Text(title, overflow: TextOverflow.ellipsis),
+      value: value,
+      onTap: onTap,
+    );
+  }
+
+  /// Like [simple], but the label is a [Widget] (e.g. a styled [Text]).
+  factory PopupItem.simple2({Widget? icon, required Widget title, T? value, VoidCallback? onTap}) {
+    return PopupItem(
+      value: value,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[icon, const SizedBox(width: 8)],
+            Flexible(child: title),
+          ],
+        ),
+      ),
+    );
+  }
+
+  final Widget child;
   final T? value;
-  final bool isHighlight;
   final VoidCallback? onTap;
 }
 
@@ -166,9 +213,9 @@ class PopupMenuControl<T> extends StatefulWidget {
     this.itemsBuilder,
     required this.child,
     this.title,
-    this.highlightColor,
+    this.onSelected,
+    this.modal = false,
     this.backgroundColor,
-    this.labelStyle,
     this.offset = const Offset(0, 2),
     this.minWidth = 140,
   }) : assert(items != null || itemsBuilder != null);
@@ -177,9 +224,9 @@ class PopupMenuControl<T> extends StatefulWidget {
   final List<PopupItem<T>> Function()? itemsBuilder;
   final Widget child;
   final Widget? title;
-  final Color? highlightColor;
+  final ValueChanged<T?>? onSelected;
+  final bool modal;
   final Color? backgroundColor;
-  final TextStyle? labelStyle;
   final Offset offset;
   final double minWidth;
 
@@ -206,39 +253,29 @@ class _PopupMenuControlState<T> extends State<PopupMenuControl<T>> {
       anchorSize: renderBox.size,
       items: items,
       title: widget.title,
-      highlightColor: widget.highlightColor,
+      modal: widget.modal,
       backgroundColor: widget.backgroundColor,
-      labelStyle: widget.labelStyle,
       minWidth: widget.minWidth,
     );
-    _future!.whenComplete(() => _open = false);
+    _future!
+        .then((value) {
+          widget.onSelected?.call(value);
+        })
+        .whenComplete(() => _open = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _openMenu,
-      behavior: HitTestBehavior.opaque,
-      child: widget.child,
-    );
+    return GestureDetector(onTap: _openMenu, behavior: HitTestBehavior.opaque, child: widget.child);
   }
 }
 
 class _MenuCard<T> extends StatelessWidget {
-  const _MenuCard({
-    required this.items,
-    this.title,
-    required this.highlightColor,
-    required this.backgroundColor,
-    required this.labelStyle,
-    required this.onItemTap,
-  });
+  const _MenuCard({required this.items, this.title, required this.backgroundColor, required this.onItemTap});
 
   final List<PopupItem<T>> items;
   final Widget? title;
-  final Color? highlightColor;
   final Color? backgroundColor;
-  final TextStyle? labelStyle;
   final ValueChanged<T?> onItemTap;
 
   @override
@@ -262,20 +299,11 @@ class _MenuCard<T> extends StatelessWidget {
             if (title != null) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: DefaultTextStyle(
-                  style: theme.textTheme.labelLarge ?? const TextStyle(),
-                  child: title!,
-                ),
+                child: DefaultTextStyle(style: theme.textTheme.labelLarge ?? const TextStyle(), child: title!),
               ),
               Divider(height: 1, thickness: 1, color: theme.dividerColor.withAlpha(80)),
             ],
-            for (final item in items)
-              _MenuItem<T>(
-                item: item,
-                highlightColor: highlightColor,
-                labelStyle: labelStyle,
-                onItemTap: onItemTap,
-              ),
+            for (final item in items) _MenuItem<T>(item: item, onItemTap: onItemTap),
           ],
         ),
       ),
@@ -284,16 +312,9 @@ class _MenuCard<T> extends StatelessWidget {
 }
 
 class _MenuItem<T> extends StatelessWidget {
-  const _MenuItem({
-    required this.item,
-    required this.highlightColor,
-    required this.labelStyle,
-    required this.onItemTap,
-  });
+  const _MenuItem({required this.item, required this.onItemTap});
 
   final PopupItem<T> item;
-  final Color? highlightColor;
-  final TextStyle? labelStyle;
   final ValueChanged<T?> onItemTap;
 
   @override
@@ -303,25 +324,7 @@ class _MenuItem<T> extends StatelessWidget {
         item.onTap?.call();
         onItemTap(item.value);
       },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            item.icon,
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                item.label,
-                style: labelStyle?.copyWith(
-                      color: item.isHighlight ? highlightColor : labelStyle?.color,
-                    ) ??
-                    TextStyle(color: item.isHighlight ? highlightColor : null),
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: item.child,
     );
   }
 }

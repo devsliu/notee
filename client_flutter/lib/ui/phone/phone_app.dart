@@ -1,8 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/ui/base_app.dart';
 import 'package:notee/ui/common/app_bar.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:notee/ui/editor/record_flow_editor_page.dart';
 import 'package:notee/ui/files/record_list_page.dart';
 import 'package:notee/ui/calendar/calendar_page.dart';
@@ -33,8 +34,7 @@ class _PhoneAppState extends BaseAppState<PhoneApp> {
         break;
       case AppNavigator.uriCalendar:
         navigatorKey.currentState?.push(
-          MaterialPageRoute(
-            builder: (_) => CalendarPage(showAppBar: true, closeCallback: Navigator.pop)),
+          MaterialPageRoute(builder: (_) => CalendarPage(showAppBar: true, closeCallback: Navigator.pop)),
         );
         break;
       case AppNavigator.uriRecycler:
@@ -80,11 +80,12 @@ class PhoneRecordDetailPageState<T extends PhoneRecordDetailPage> extends Record
       actions: [
         if (pageState.isNormal) IconButton(onPressed: saveRecord, icon: Icon(Icons.done_outlined)),
         if (pageState.isNormal)
-          PopupMenuButton<int>(
-          popUpAnimationStyle: AnimationStyle.noAnimation,
-            icon: Icon(Icons.more_vert),
-            onSelected: onOverflowMenuSelect,
-            itemBuilder: buildOverflowMenuItems,
+          PopupMenuControl<int>(
+            itemsBuilder: () => buildOverflowMenuItems(context),
+            onSelected: (v) {
+              if (v != null) onOverflowMenuSelect(v);
+            },
+            child: const Icon(Icons.more_vert),
           ),
         SizedBox(width: 8),
       ],

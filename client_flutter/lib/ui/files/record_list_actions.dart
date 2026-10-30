@@ -1,4 +1,4 @@
-﻿import 'dart:math';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:notee/config/app_env.dart';
@@ -8,50 +8,38 @@ import 'package:notee/filesync/record_ext.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/model/record_opened_state.dart';
 import 'package:notee/model/record_utils.dart';
-import 'package:notee/ui/common/input_dialog.dart';
 import 'package:notee/ui/base_app.dart';
+import 'package:notee/ui/common/input_dialog.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:notee/ui/files/record_io.dart';
 import 'package:notee/ui/settings/theme_selector_dialog.dart';
 
 import '../../utils/utils.dart';
 
-
 /// Static action helpers shared by the record list page.
 /// Actions are distributed between the top app bar (title, new note/folder,
 /// parent, collapse) and the left side rail (sort, import/export).
 class RecordListActions {
-  static List<PopupMenuEntry<String>> _noteListMenuItems() => [
-    PopupMenuItem(
+  static List<PopupItem<String>> _noteListMenuItems() => [
+    PopupItem.simple(
+      icon: const Icon(Icons.folder_outlined),
+      title: l10n.sortTypeFlatFolder,
       value: FilesPanelMode.filesTypeFlat,
-      child: ListTile(
-        leading: const Icon(Icons.folder_outlined),
-        title: Text(l10n.sortTypeFlatFolder),
-        contentPadding: EdgeInsets.zero,
-      ),
     ),
-    PopupMenuItem(
+    PopupItem.simple(
+      icon: const Icon(Icons.account_tree_outlined),
+      title: l10n.sortTypeTreeFolder,
       value: FilesPanelMode.filesTypeTree,
-      child: ListTile(
-        leading: const Icon(Icons.account_tree_outlined),
-        title: Text(l10n.sortTypeTreeFolder),
-        contentPadding: EdgeInsets.zero,
-      ),
     ),
-    PopupMenuItem(
+    PopupItem.simple(
+      icon: const Icon(Icons.sort_by_alpha_outlined),
+      title: l10n.sortTypeName,
       value: FilesPanelMode.filesTypeName,
-      child: ListTile(
-        leading: const Icon(Icons.sort_by_alpha_outlined),
-        title: Text(l10n.sortTypeName),
-        contentPadding: EdgeInsets.zero,
-      ),
     ),
-    PopupMenuItem(
+    PopupItem.simple(
+      icon: const Icon(Icons.timer_outlined),
+      title: l10n.sortTypeTime,
       value: FilesPanelMode.filesTypeTime,
-      child: ListTile(
-        leading: const Icon(Icons.timer_outlined),
-        title: Text(l10n.sortTypeTime),
-        contentPadding: EdgeInsets.zero,
-      ),
     ),
   ];
 
@@ -110,17 +98,15 @@ class RecordListActions {
       valueListenable: AppEnv.filesPanelModeNotifier,
       builder: (context, _, _) {
         if (AppEnv.listPageValue.panelMode == FilesPanelMode.panelModeTag) return SizedBox.shrink();
-        return PopupMenuButton<String>(
-          popUpAnimationStyle: AnimationStyle.noAnimation,
-          icon: Icon(_listTypeIcon(AppEnv.listPageValue.listFilesType)),
-          iconColor: Theme.of(context).appBarIconColor,
-          tooltip: l10n.sortType,
+        return PopupMenuControl<String>(
+          itemsBuilder: _noteListMenuItems,
           onSelected: (value) {
+            if (value == null) return;
             AppEnv.setFilesPanelModeListType(value);
             Repository.get().recordTree.setSortListType(AppEnv.listPageValue.sortType);
             RecordOpenedState.get().setOpenedFolder("/");
           },
-          itemBuilder: (context) => _noteListMenuItems(),
+          child: Icon(_listTypeIcon(AppEnv.listPageValue.listFilesType), color: Theme.of(context).appBarIconColor),
         );
       },
     );
@@ -134,11 +120,7 @@ class RecordListActions {
   }
 
   static Widget importExportButton(BuildContext context, ReturnCallback<String> getFolder) {
-    return PopupMenuButton<String>(
-          popUpAnimationStyle: AnimationStyle.noAnimation,
-      iconColor: Theme.of(context).appBarIconColor,
-      icon: const Icon(Icons.import_export_outlined),
-      tooltip: l10n.importExport,
+    return PopupMenuControl<String>(
       onSelected: (value) {
         if (value == 'import') {
           RecordImport.pickAndImportDocuments(context, getFolder());
@@ -148,32 +130,12 @@ class RecordListActions {
           RecordExport.start(context, getFolder());
         }
       },
-      itemBuilder: (context) => [
-        PopupMenuItem(
-          value: 'export',
-          child: ListTile(
-            leading: const Icon(Icons.download_outlined),
-            title: Text(l10n.exportMd),
-            contentPadding: EdgeInsets.zero,
-          ),
-        ),
-        PopupMenuItem(
-          value: 'import',
-          child: ListTile(
-            leading: const Icon(Icons.upload_outlined),
-            title: Text(l10n.importDocument),
-            contentPadding: EdgeInsets.zero,
-          ),
-        ),
-        PopupMenuItem(
-          value: 'importFolder',
-          child: ListTile(
-            leading: const Icon(Icons.folder_open_outlined),
-            title: Text(l10n.importFolder),
-            contentPadding: EdgeInsets.zero,
-          ),
-        ),
+      items: [
+        PopupItem.simple(icon: const Icon(Icons.download_outlined), title: l10n.exportMd, value: 'export'),
+        PopupItem.simple(icon: const Icon(Icons.upload_outlined), title: l10n.importDocument, value: 'import'),
+        PopupItem.simple(icon: const Icon(Icons.folder_open_outlined), title: l10n.importFolder, value: 'importFolder'),
       ],
+      child: Icon(Icons.import_export_outlined, color: Theme.of(context).appBarIconColor),
     );
   }
 
@@ -243,21 +205,19 @@ class RecordListActions {
   }
 
   static Widget languageButton(BuildContext context) {
-    return PopupMenuButton<LanguageOption>(
-          popUpAnimationStyle: AnimationStyle.noAnimation,
-      icon: const Icon(Icons.language_outlined),
-      iconColor: Theme.of(context).appBarIconColor,
-      tooltip: l10n.language,
+    return PopupMenuControl<LanguageOption>(
       onSelected: (option) async {
+        if (option == null) return;
         if (option != LanguageManager.getCurrentLanguage()) {
           await LanguageManager.setLanguage(option);
         }
       },
-      itemBuilder: (context) => [
-        PopupMenuItem(value: LanguageOption.system, child: Text(l10n.followSystem)),
-        PopupMenuItem(value: LanguageOption.chinese, child: Text(l10n.chinese)),
-        PopupMenuItem(value: LanguageOption.english, child: Text(l10n.english)),
+      items: [
+        PopupItem.simple(title: l10n.followSystem, value: LanguageOption.system),
+        PopupItem.simple(title: l10n.chinese, value: LanguageOption.chinese),
+        PopupItem.simple(title: l10n.english, value: LanguageOption.english),
       ],
+      child: Icon(Icons.language_outlined, color: Theme.of(context).appBarIconColor),
     );
   }
 
@@ -286,7 +246,6 @@ class RecordListActions {
       child: icon,
     );
   }
-
 }
 
 /// Tab segment used inside the combined capsule tab bar. Tapping triggers

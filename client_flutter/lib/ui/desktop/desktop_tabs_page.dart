@@ -5,6 +5,7 @@ import 'package:notee/config/theme.dart';
 import 'package:notee/config/app_env.dart';
 import 'package:notee/ui/desktop/window_state.dart';
 import 'package:flutter/material.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:notee/ui/desktop/desktop_tabbar.dart';
 import 'package:notee/ui/common/empty_detail_placeholder.dart';
 import 'package:notee/utils/utils.dart';
@@ -329,7 +330,7 @@ class DesktopTabsPageState extends State<DesktopTabsPage> {
                 IconButtonTheme(
                   data: theme.appBarIconButtonTheme,
                   child: _TabDropdown(
-                    tabs: _tabs.map((impl) => impl.tab).toList(),
+                    tabs: _tabs,
                     currentIndex: currentIndex,
                     onSelect: selectTab,
                     onCloseTab: closeTab,
@@ -378,7 +379,7 @@ class DesktopTabsPageState extends State<DesktopTabsPage> {
 }
 
 class _TabDropdown extends StatefulWidget {
-  final List<DesktopTab> tabs;
+  final List<dynamic> tabs;
   final int currentIndex;
   final ValueChanged<int> onSelect;
   final ValueChanged<int> onCloseTab;
@@ -396,6 +397,11 @@ class _TabDropdown extends StatefulWidget {
 
 class _TabDropdownState extends State<_TabDropdown> {
   final GlobalKey _arrowKey = GlobalKey();
+  final PopupMenuController<int> _controller = PopupMenuController<int>();
+
+  List<PopupItem<int>> _buildPopupItems() {
+    return [for (int i = 0; i < widget.tabs.length; i++) PopupItem<int>(value: i, child: _buildTabItem(context, i))];
+  }
 
   void _showPopup() async {
     setState(() {});
@@ -403,47 +409,12 @@ class _TabDropdownState extends State<_TabDropdown> {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final position = renderBox.localToGlobal(Offset.zero, ancestor: overlay);
     final size = renderBox.size;
-    final selected = await showMenu<int>(
+    final selected = await showPopup<int>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy + size.height, position.dx + size.width, position.dy),
-      popUpAnimationStyle: AppEnv.menuAnimationStyle,
-      items: [
-        for (int i = 0; i < widget.tabs.length; i++)
-          PopupMenuItem<int>(
-            height: 30,
-            value: i,
-            child: Row(
-              children: [
-                if (i == widget.currentIndex) Icon(Icons.check, size: 16, color: Theme.of(context).colorScheme.primary),
-                if (i != widget.currentIndex) const SizedBox(width: 16), // Placeholder for alignment
-                const SizedBox(width: 4),
-                Expanded(child: Text(widget.tabs[i].title, overflow: TextOverflow.ellipsis)),
-                GestureDetector(
-                  onTap: () {
-                    // Close current tab
-                    widget.onCloseTab(i);
-                    // Close current menu
-                    Navigator.pop(context);
-                    // If there are still tabs, re-show menu
-                    if (widget.tabs.length > 1) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) {
-                          _showPopup();
-                        }
-                      });
-                    }
-                  },
-                  child: Container(
-                    width: 20,
-                    height: 20,
-                    alignment: Alignment.center,
-                    child: const Icon(Icons.close, size: 14),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
+      position: Offset(position.dx, position.dy + size.height),
+      anchorSize: Size(size.width, 0),
+      controller: _controller,
+      items: _buildPopupItems(),
     );
     // Control may have been destroyed along with tab closure while menu was waiting
     if (!mounted) return;
@@ -451,6 +422,42 @@ class _TabDropdownState extends State<_TabDropdown> {
     if (selected != null) {
       widget.onSelect(selected);
     }
+  }
+
+  Widget _buildTabItem(BuildContext context, int i) {
+    final isCurrent = i == widget.currentIndex;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        children: [
+          SizedBox(
+            width: 16,
+            child: isCurrent ? Icon(Icons.check, size: 16, color: Theme.of(context).colorScheme.primary) : null,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(widget.tabs[i].toString(), overflow: TextOverflow.ellipsis)),
+          const SizedBox(width: 8),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              widget.onCloseTab(i);
+              if (widget.tabs.isNotEmpty) {
+                _controller.rebuild(_buildPopupItems());
+              } else {
+                _controller.dismiss();
+              }
+            },
+            child: Container(
+              width: 20,
+              height: 20,
+              alignment: Alignment.center,
+              child: const Icon(Icons.close, size: 14),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

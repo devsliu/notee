@@ -1,5 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:notee/ui/common/app_bar.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/utils/utils.dart';
 
@@ -80,6 +81,13 @@ class _LogsPageState extends State<LogsPage> {
     }
   }
 
+  Widget _filterItem(String label, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Text(label, style: TextStyle(color: color)),
+    );
+  }
+
   void _showDetail(AppLogEntry item) {
     final color = _levelColor(item.level);
     showDialog(
@@ -93,9 +101,7 @@ class _LogsPageState extends State<LogsPage> {
             style: TextStyle(color: color, fontSize: 13, height: 1.4),
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.cancel),
-          ),
-        ],
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.cancel))],
       ),
     );
   }
@@ -123,31 +129,18 @@ class _LogsPageState extends State<LogsPage> {
   Widget _buildFilterButton() {
     final color = _filterLevel != null ? _levelColor(_filterLevel!) : null;
     final label = _filterLevel ?? l10n.filterAll;
-    return PopupMenuButton<String>(
-          popUpAnimationStyle: AnimationStyle.noAnimation,
-      tooltip: l10n.filterLevel,
+    return PopupMenuControl<String>(
       onSelected: (v) {
+        if (v == null) return;
         final next = v.isEmpty ? null : v;
         if (next != _filterLevel) setState(() => _filterLevel = next);
       },
-      itemBuilder: (context) => [
-        PopupMenuItem<String>(value: '', child: Text(l10n.filterAll)),
-        PopupMenuItem<String>(
-          value: 'ERROR',
-          child: Text('ERROR', style: TextStyle(color: Colors.red)),
-        ),
-        PopupMenuItem<String>(
-          value: 'WARN',
-          child: Text('WARN', style: TextStyle(color: Colors.orange)),
-        ),
-        PopupMenuItem<String>(
-          value: 'INFO',
-          child: Text('INFO', style: TextStyle(color: Colors.blue.shade500)),
-        ),
-        PopupMenuItem<String>(
-          value: 'DEBUG',
-          child: Text('DEBUG', style: const TextStyle(color: Colors.grey)),
-        ),
+      items: [
+        PopupItem.simple(title: l10n.filterAll, value: ''),
+        PopupItem<String>(value: 'ERROR', child: _filterItem('ERROR', Colors.red)),
+        PopupItem<String>(value: 'WARN', child: _filterItem('WARN', Colors.orange)),
+        PopupItem<String>(value: 'INFO', child: _filterItem('INFO', Colors.blue.shade500)),
+        PopupItem<String>(value: 'DEBUG', child: _filterItem('DEBUG', Colors.grey)),
       ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),

@@ -10,8 +10,7 @@ class _Labeled extends StatelessWidget {
   Widget build(BuildContext context) => child;
 }
 
-Widget _wrapLabel(BuildContext ctx, String id, String msg, Widget child) =>
-    _Labeled(message: msg, child: child);
+Widget _wrapLabel(BuildContext ctx, String id, String msg, Widget child) => _Labeled(message: msg, child: child);
 
 ToolbarItem buildToolbarItemWithMenu({
   required String id,
@@ -24,16 +23,24 @@ ToolbarItem buildToolbarItemWithMenu({
     id: id,
     group: group,
     builder: (context, editorState, highlightColor, iconColor, tooltipBuilder) {
-      final menu = PopupMenuControl(
-        highlightColor: highlightColor,
+      final menu = PopupMenuControl<dynamic>(
         itemsBuilder: () => children.map((c) {
-          final built = c.builder?.call(context, editorState, highlightColor, iconColor, _wrapLabel) ??
-              const SizedBox.shrink();
+          final built =
+              c.builder?.call(context, editorState, highlightColor, iconColor, _wrapLabel) ?? const SizedBox.shrink();
           final inner = _unwrapLabel(built);
-          return PopupItem(
-            icon: IgnorePointer(child: inner),
-            label: _extractLabel(built, c),
-            isHighlight: inner is SVGIconItemWidget ? inner.isHighlight : false,
+          final isHighlight = inner is SVGIconItemWidget ? inner.isHighlight : false;
+          final label = _extractLabel(built, c);
+          final Color? color = isHighlight ? highlightColor : null;
+          return PopupItem<dynamic>.simple2(
+            icon: IconTheme.merge(
+              data: IconThemeData(color: color),
+              child: IgnorePointer(child: inner),
+            ),
+            title: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color),
+            ),
             onTap: inner is SVGIconItemWidget ? inner.onPressed : null,
           );
         }).toList(),

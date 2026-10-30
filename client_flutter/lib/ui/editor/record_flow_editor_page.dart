@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:flutter/services.dart';
 import 'package:notee/filesync/file_store.dart';
 import 'package:notee/filesync/repository.dart';
@@ -32,7 +33,6 @@ import 'package:notee/ui/editor/record_reminder_bar.dart';
 import 'package:notee/ui/editor/record_tags_bar.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
-
 
 /// Shared text style configuration (edit page + diff page).
 TextStyleConfiguration buildEditorTextStyle(ThemeData theme) {
@@ -220,31 +220,17 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
   bool get showOutline => _showOutline;
 
   /// 页面级溢出菜单项（查找 / 大纲 / 提醒 / 分享 / 信息），三端共用。
-  List<PopupMenuEntry<int>> buildOverflowMenuItems(BuildContext context) {
+  List<PopupItem<int>> buildOverflowMenuItems(BuildContext context) {
     return [
-        PopupMenuItem(
-          value: 0,
-          child: ListTile(leading: Icon(Icons.search), title: Text(AppFlowyEditorL10n.current.find)),
-        ),
-        PopupMenuItem(
-          value: 1,
-          child: ListTile(
-            leading: Icon(Icons.format_list_bulleted, color: _showOutline ? Colors.blue : null),
-            title: Text(l10n.outline),
-          ),
-        ),
-      PopupMenuItem(
-        value: 3,
-        child: ListTile(leading: Icon(Icons.share_outlined), title: Text(l10n.share)),
+      PopupItem.simple(icon: const Icon(Icons.search), title: AppFlowyEditorL10n.current.find, value: 0),
+      PopupItem.simple(
+        icon: Icon(Icons.format_list_bulleted, color: _showOutline ? Colors.blue : null),
+        title: l10n.outline,
+        value: 1,
       ),
-      PopupMenuItem(
-          value: 2,
-          child: ListTile(leading: Icon(Icons.notifications_active_outlined), title: Text(l10n.addReminder)),
-        ),
-      PopupMenuItem(
-          value: 4,
-          child: ListTile(leading: Icon(Icons.info_outlined), title: Text(l10n.recordInfo)),
-        ),
+      PopupItem.simple(icon: const Icon(Icons.notifications_active_outlined), title: l10n.addReminder, value: 2),
+      PopupItem.simple(icon: const Icon(Icons.share_outlined), title: l10n.share, value: 3),
+      PopupItem.simple(icon: const Icon(Icons.info_outlined), title: l10n.recordInfo, value: 4),
     ];
   }
 
@@ -403,8 +389,7 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
         final maxOffset = node.delta?.toPlainText().length ?? 0;
         validSelection = Selection(
           start: Position(path: savedSelection.start.path, offset: savedSelection.start.offset.clamp(0, maxOffset)),
-          end: Position(path: savedSelection.end.path, offset: savedSelection.end.offset.clamp(0, maxOffset),
-          ),
+          end: Position(path: savedSelection.end.path, offset: savedSelection.end.offset.clamp(0, maxOffset)),
         );
       } else if (newNodes.isNotEmpty) {
         validSelection = selectionAtNodeEnd(newNodes.last);
@@ -550,23 +535,14 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (_showOutline)
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: _buildOutlinePanelWrapper(theme),
-                      ),
+                      Padding(padding: const EdgeInsets.all(8), child: _buildOutlinePanelWrapper(theme)),
                     Expanded(child: _buildEditorWidget(theme, _blockComponentBuilders, _textStyleConfiguration)),
                   ],
                 )
               : Stack(
                   children: [
                     _buildEditorWidget(theme, _blockComponentBuilders, _textStyleConfiguration),
-                    if (_showOutline)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        bottom: 8,
-                        child: _buildOutlinePanelWrapper(theme),
-                      ),
+                    if (_showOutline) Positioned(top: 8, right: 8, bottom: 8, child: _buildOutlinePanelWrapper(theme)),
                   ],
                 ),
         ),
@@ -637,7 +613,6 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
       editorStyle: buildEditorStyle(theme, textStyleConfiguration),
     );
 
-
     return MobileFloatingToolbar(
       editorState: editorState,
       editorScrollController: editorScrollController,
@@ -672,4 +647,3 @@ class RecordFlowEditorPageState<T extends RecordFlowEditorPage> extends BaseReco
     );
   }
 }
-

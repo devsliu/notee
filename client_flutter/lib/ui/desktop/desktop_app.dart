@@ -5,6 +5,7 @@ import 'package:notee/config/language_manager.dart';
 import 'package:notee/config/app_env.dart';
 
 import 'package:notee/ui/base_app.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:notee/ui/desktop/desktop_title_bar.dart';
 import 'package:notee/ui/desktop/window_state.dart';
 import 'package:notee/utils/utils.dart';
@@ -71,13 +72,11 @@ class EditorTab extends DesktopTab {
         onPressed: () async {
           final renderBox = context.findRenderObject() as RenderBox?;
           if (renderBox == null) return;
-          final result = await showMenu<int>(
-            popUpAnimationStyle: AnimationStyle.noAnimation,
+          final position = renderBox.localToGlobal(Offset.zero);
+          final result = await showPopup<int>(
             context: context,
-            position: RelativeRect.fromRect(
-              renderBox.localToGlobal(Offset.zero) & renderBox.size,
-              Offset.zero & MediaQuery.of(context).size,
-            ),
+            position: position,
+            anchorSize: renderBox.size,
             items: state.buildOverflowMenuItems(context),
           );
           if (result != null) state.onOverflowMenuSelect(result);
@@ -181,12 +180,9 @@ class _DesktopAppState extends BaseAppState<DesktopApp> {
   @override
   void onAppTerminating() {
     _saveTabs();
-    AppEnv.prefs
-      .setBool(PrefKeys.windowMaximized, isMaximizedNotifier.value).save();
+    AppEnv.prefs.setBool(PrefKeys.windowMaximized, isMaximizedNotifier.value).save();
     super.onAppTerminating();
   }
-
-
 
   @override
   Widget buildAppWrapper(BuildContext context, Widget child) {

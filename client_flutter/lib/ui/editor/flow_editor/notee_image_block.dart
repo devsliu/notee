@@ -19,11 +19,7 @@ typedef NoteeAssetResolver = RecordAsset Function(String src);
 /// absolute local paths before rendering.  The original document node is
 /// never mutated — resolution is purely render-time.
 class NoteeImageBlockBuilder extends BlockComponentBuilder {
-  NoteeImageBlockBuilder({
-    super.configuration,
-    required this.fileStore,
-    required this.srcResolver,
-  });
+  NoteeImageBlockBuilder({super.configuration, required this.fileStore, required this.srcResolver});
 
   final FileStore fileStore;
   final NoteeAssetResolver srcResolver;
@@ -61,8 +57,7 @@ class NoteeImageBlockWidget extends BlockComponentStatefulWidget {
   State<NoteeImageBlockWidget> createState() => _NoteeImageBlockState();
 }
 
-class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
-    with BlockComponentConfigurable {
+class _NoteeImageBlockState extends State<NoteeImageBlockWidget> with BlockComponentConfigurable {
   @override
   BlockComponentConfiguration get configuration => widget.configuration;
 
@@ -95,13 +90,11 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
   }
 
   void _resolveAndDownload() {
-    final rawSrc =
-        widget.node.attributes[ImageBlockKeys.url] as String? ?? '';
+    final rawSrc = widget.node.attributes[ImageBlockKeys.url] as String? ?? '';
     _resolved = widget.srcResolver(rawSrc);
     _isDownloading = false;
     _downloadError = false;
-    if (_resolved.cachePath.isNotEmpty &&
-        !File(_resolved.cachePath).existsSync()) {
+    if (_resolved.cachePath.isNotEmpty && !File(_resolved.cachePath).existsSync()) {
       _isDownloading = true;
       _downloadAsset();
     }
@@ -148,9 +141,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       await source.copy(destination);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.saveRecordFailed)),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.saveRecordFailed)));
       }
     }
   }
@@ -162,16 +153,16 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
 
     final popupItems = <PopupItem>[
       if (_sourceLocalFile != null)
-        PopupItem(
+        PopupItem.simple(
           icon: const Icon(Icons.save_outlined, size: 18),
-          label: l10n.save,
+          title: l10n.save,
           onTap: () {
             unawaited(_saveImage());
           },
         ),
-      PopupItem(
+      PopupItem.simple(
         icon: const Icon(Icons.delete_outline, size: 18),
-        label: l10n.delete,
+        title: l10n.delete,
         onTap: () {
           final transaction = editorState.transaction..deleteNode(widget.node);
           editorState.apply(transaction);
@@ -179,11 +170,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       ),
     ];
 
-    showPopup(
-      context: context,
-      position: globalPosition,
-      items: popupItems,
-    );
+    showPopup(context: context, position: globalPosition, items: popupItems);
   }
 
   @override
@@ -191,11 +178,8 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     final node = widget.node;
     final attributes = node.attributes;
 
-    final alignment = AlignmentExtension.fromString(
-      attributes[ImageBlockKeys.align] ?? 'center',
-    );
-    final width = attributes[ImageBlockKeys.width]?.toDouble() ??
-        MediaQuery.of(context).size.width;
+    final alignment = AlignmentExtension.fromString(attributes[ImageBlockKeys.align] ?? 'center');
+    final width = attributes[ImageBlockKeys.width]?.toDouble() ?? MediaQuery.of(context).size.width;
     final height = attributes[ImageBlockKeys.height]?.toDouble();
 
     Widget imageWidget;
@@ -220,30 +204,19 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
       );
     }
 
-    Widget child = Padding(
-      padding: margin + padding,
-      child: imageWidget,
-    );
+    Widget child = Padding(padding: margin + padding, child: imageWidget);
     return child;
   }
 
   Widget _buildLoading(double width, double? height) => SizedBox(
-        width: width,
-        height: height ?? width * 0.6,
-        child: const Center(
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-      );
+    width: width,
+    height: height ?? width * 0.6,
+    child: const Center(child: SizedBox(width: 32, height: 32, child: CircularProgressIndicator(strokeWidth: 2))),
+  );
 
   Widget _buildError(double width, double? height) => SizedBox(
-        width: width,
-        height: height ?? width * 0.6,
-        child: const Center(
-          child: Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey),
-        ),
-      );
+    width: width,
+    height: height ?? width * 0.6,
+    child: const Center(child: Icon(Icons.broken_image_outlined, size: 48, color: Colors.grey)),
+  );
 }

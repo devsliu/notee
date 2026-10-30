@@ -1,8 +1,9 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:notee/config/app_env.dart';
 import 'package:notee/ui/common/app_bar.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/filesync/repository.dart';
@@ -17,11 +18,7 @@ class CalendarPage extends StatefulWidget {
   final bool showAppBar;
   final ValueCallback<BuildContext> closeCallback;
 
-  const CalendarPage({
-    super.key,
-    this.showAppBar = true,
-    this.closeCallback = Navigator.pop,
-  });
+  const CalendarPage({super.key, this.showAppBar = true, this.closeCallback = Navigator.pop});
 
   @override
   State<CalendarPage> createState() => _CalendarPageState();
@@ -402,13 +399,7 @@ class _CalendarPageState extends State<CalendarPage> implements DesktopTabPageSt
         overflow: TextOverflow.ellipsis,
         style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withAlpha(180)),
       ),
-      trailing: PopupMenuButton<String>(
-          popUpAnimationStyle: AnimationStyle.noAnimation,
-        icon: Icon(Icons.edit_outlined, size: 18, color: theme.colorScheme.primary),
-        tooltip: l10n.edit,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-        splashRadius: 18,
+      trailing: PopupMenuControl<String>(
         onSelected: (v) {
           switch (v) {
             case 'toggle':
@@ -422,34 +413,20 @@ class _CalendarPageState extends State<CalendarPage> implements DesktopTabPageSt
               break;
           }
         },
-        itemBuilder: (_) => [
-          PopupMenuItem(
+        items: [
+          PopupItem.simple(
+            icon: Icon(task.done ? Icons.check_box : Icons.check_box_outline_blank, size: 18),
+            title: task.done ? l10n.markUnfinished : l10n.markFinished,
             value: 'toggle',
-            child: Row(
-              children: [
-                Icon(task.done ? Icons.check_box : Icons.check_box_outline_blank, size: 18),
-                const SizedBox(width: 8),
-                Text(task.done ? l10n.markUnfinished : l10n.markFinished),
-              ],
-            ),
           ),
-          PopupMenuItem(
-            value: 'edit',
-            child: Row(
-              children: [const Icon(Icons.edit_outlined, size: 18), const SizedBox(width: 8), Text(l10n.edit)],
-            ),
-          ),
-          PopupMenuItem(
+          PopupItem.simple(icon: const Icon(Icons.edit_outlined, size: 18), title: l10n.edit, value: 'edit'),
+          PopupItem.simple(
+            icon: Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
+            title: l10n.delete,
             value: 'delete',
-            child: Row(
-              children: [
-                Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
-                const SizedBox(width: 8),
-                Text(l10n.delete),
-              ],
-            ),
           ),
         ],
+        child: Icon(Icons.edit_outlined, size: 18, color: theme.colorScheme.primary),
       ),
     );
   }

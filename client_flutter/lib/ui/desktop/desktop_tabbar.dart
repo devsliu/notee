@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:notee/config/theme.dart';
-import 'package:notee/config/app_env.dart';
+import 'package:notee/ui/common/popup_menu.dart';
 
 import '../../config/language_manager.dart';
 
@@ -159,46 +159,31 @@ class _TabItemState extends State<_TabItem> {
   bool _hover = false;
 
   Future<void> _showContextMenu(TapUpDetails details) async {
-    final menuItems = <PopupMenuEntry<int>>[];
+    final items = <PopupItem<int>>[];
 
     // Close other tabs
     if (widget.onCloseOtherTabs != null && widget.totalCount > 1) {
-      menuItems.add(PopupMenuItem(value: 0, child: Text(l10n.closeOtherTabs)));
+      items.add(PopupItem.simple(title: l10n.closeOtherTabs, value: 0));
     }
 
     // Close all tabs
     if (widget.onCloseAllTabs != null && widget.totalCount > 0) {
-      menuItems.add(PopupMenuItem(value: 1, child: Text(l10n.closeAllTabs)));
+      items.add(PopupItem.simple(title: l10n.closeAllTabs, value: 1));
     }
 
     // Close tabs to the right
     if (widget.onCloseTabsToRight != null && widget.index < widget.totalCount - 1) {
-      menuItems.add(PopupMenuItem(value: 2, child: Text(l10n.closeTabsToRight)));
+      items.add(PopupItem.simple(title: l10n.closeTabsToRight, value: 2));
     }
 
     // Close tabs to the left
     if (widget.onCloseTabsToLeft != null && widget.index > 0) {
-      menuItems.add(PopupMenuItem(value: 3, child: Text(l10n.closeTabsToLeft)));
+      items.add(PopupItem.simple(title: l10n.closeTabsToLeft, value: 3));
     }
 
-    if (menuItems.isEmpty) return;
+    if (items.isEmpty) return;
 
-    var position = details.globalPosition;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final offset = overlay.localToGlobal(Offset.zero);
-    final menuPosition = RelativeRect.fromLTRB(
-      position.dx + offset.dx,
-      position.dy + offset.dy,
-      overlay.size.width - position.dx - offset.dx,
-      overlay.size.height - position.dy - offset.dy,
-    );
-
-    final value = await showMenu<int>(
-      context: context,
-      position: menuPosition,
-      items: menuItems,
-      popUpAnimationStyle: AppEnv.menuAnimationStyle,
-    );
+    final value = await showPopup<int>(context: context, position: details.globalPosition, items: items, modal: true);
 
     switch (value) {
       case 0:
