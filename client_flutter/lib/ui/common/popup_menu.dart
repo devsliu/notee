@@ -23,10 +23,14 @@ Future<T?> showPopup<T>({
 }) {
   final completer = Completer<T?>();
   late final OverlayEntry entry;
+  bool isShowning = true;
 
   void dismiss([T? result]) {
     if (!completer.isCompleted) completer.complete(result);
-    entry.remove();
+    if (isShowning) {
+      entry.remove();
+    }
+    isShowning = false;
   }
 
   final overlay = Overlay.of(context);
@@ -41,14 +45,14 @@ Future<T?> showPopup<T>({
       return Stack(
         children: [
           Positioned.fill(
-            child: GestureDetector(
-              onTap: () => dismiss(null),
+            child: Listener(
+              onPointerDown: (_) => dismiss(null),
               behavior: modal ? HitTestBehavior.opaque : HitTestBehavior.translucent,
               child: const SizedBox.expand(),
             ),
           ),
           CustomSingleChildLayout(
-            delegate: _PopupMenuRouteLayout(position: relativeRect),
+            delegate: _PopupMenuLayout(position: relativeRect),
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
               child: _MenuCard<T>(
@@ -71,8 +75,8 @@ Future<T?> showPopup<T>({
 
 // Positioning of the menu on the screen — cloned from Flutter's
 // _PopupMenuRouteLayout (popup_menu.dart).
-class _PopupMenuRouteLayout extends SingleChildLayoutDelegate {
-  _PopupMenuRouteLayout({required this.position});
+class _PopupMenuLayout extends SingleChildLayoutDelegate {
+  _PopupMenuLayout({required this.position});
 
   // Rectangle of underlying button, relative to the overlay's dimensions.
   final RelativeRect position;
@@ -133,7 +137,7 @@ class _PopupMenuRouteLayout extends SingleChildLayoutDelegate {
   }
 
   @override
-  bool shouldRelayout(covariant _PopupMenuRouteLayout oldDelegate) {
+  bool shouldRelayout(covariant _PopupMenuLayout oldDelegate) {
     return position != oldDelegate.position;
   }
 }

@@ -208,6 +208,7 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
         image: Image.file(File(_resolved.cachePath.isNotEmpty ? _resolved.cachePath : _resolved.src)),
         width: width,
         height: height,
+        alignment: alignment,
         dragSensitivity: alignment == Alignment.center ? 2.0 : 1.0,
         editable: editorState.editable,
         onResize: (w) {
@@ -218,7 +219,6 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
         onSecondaryTapUp: (details) => _showImageMenu(details.globalPosition),
       );
     }
-    imageWidget = Align(alignment: alignment, child: imageWidget);
 
     Widget child = Padding(
       padding: margin + padding,
