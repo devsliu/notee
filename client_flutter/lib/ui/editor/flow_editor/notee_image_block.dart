@@ -216,23 +216,21 @@ class _NoteeImageBlockState extends State<NoteeImageBlockWidget>
     } else if (_downloadError) {
       imageWidget = _buildError(width, height);
     } else {
-      imageWidget = Align(
-        alignment: alignment,
-        child: NoteeResizableImage(
-          image: Image.file(File(_resolved.cachePath.isNotEmpty ? _resolved.cachePath : _resolved.src)),
-          width: width,
-          height: height,
-          dragSensitivity: alignment == Alignment.center ? 2.0 : 1.0,
-          editable: editorState.editable,
-          onResize: (w) {
-            final transaction = editorState.transaction..updateNode(node, {ImageBlockKeys.width: w});
-            editorState.apply(transaction);
-          },
-          onLongPressStart: (details) => _showImageMenu(details.globalPosition),
-          onSecondaryTapUp: (details) => _showImageMenu(details.globalPosition),
-        ),
+      imageWidget = NoteeResizableImage(
+        image: Image.file(File(_resolved.cachePath.isNotEmpty ? _resolved.cachePath : _resolved.src)),
+        width: width,
+        height: height,
+        dragSensitivity: alignment == Alignment.center ? 2.0 : 1.0,
+        editable: editorState.editable,
+        onResize: (w) {
+          final transaction = editorState.transaction..updateNode(node, {ImageBlockKeys.width: w});
+          editorState.apply(transaction);
+        },
+        onLongPressStart: (details) => _showImageMenu(details.globalPosition),
+        onSecondaryTapUp: (details) => _showImageMenu(details.globalPosition),
       );
     }
+    imageWidget = Align(alignment: alignment, child: imageWidget);
 
     Widget child = Padding(
       padding: margin + padding,
