@@ -132,7 +132,7 @@
   "tombstonePurgeConfirm": "Permanently delete {count} soft-deleted records and all orphaned assets? This action cannot be undone.",
   "tombstonePurgeDone": "Purged {count} records and {assets} orphaned assets",
   "emptyInputCheck": "Please input {input}",
-  "importDocument": "Import Documents",
+  "importDocument": "Import Doc",
   "importSuccess": "Import record success",
   "importFailed": "Import record failed",
   "importFolder": "Import Folder",

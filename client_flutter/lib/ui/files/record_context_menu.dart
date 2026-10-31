@@ -28,7 +28,7 @@ Future<void> showRecordContextMenu(
   final fullPath = isFolder ? file.path : '${file.path}${file.name}';
   final items = <PopupItem>[];
 
-  Icon actionIcon(IconData icon) => Icon(icon, size: 18);
+  Icon actionIcon(IconData icon) => Icon(icon);
 
   if (isFile) {
     items.add(PopupItem.simple(icon: actionIcon(Icons.drive_file_move_outline), title: l10n.moveRecord, value: 'move'));
@@ -80,7 +80,7 @@ Future<void> showRecordContextMenu(
     maxWidth: 150,
     minWidth: 120,
     modal: true,
-    columns: isFolder ? 2 : 1,
+    columns: 2,
     context: context,
     position: position,
     items: items,

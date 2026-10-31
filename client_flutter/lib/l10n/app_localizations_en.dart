@@ -438,7 +438,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get importDocument => 'Import Documents';
+  String get importDocument => 'Import Doc';
 
   @override
   String get importSuccess => 'Import record success';

@@ -42,16 +42,16 @@ Future<T?> showPopup<T>({
   assert(columns >= 1);
   final completer = Completer<T?>();
   late final OverlayEntry entry;
-  bool isShowning = true;
+  bool isShowing = true;
 
   List<PopupItem<T>> currentItems = items;
 
   void dismiss([T? result]) {
     if (!completer.isCompleted) completer.complete(result);
-    if (isShowning) {
+    if (isShowing) {
       entry.remove();
     }
-    isShowning = false;
+    isShowing = false;
   }
 
   void rebuild(List<PopupItem<T>> items) {
@@ -283,98 +283,69 @@ class _MenuLayoutDelegate extends GroupLayoutDelegate {
   final int itemCount;
 
   @override
-  Size performLayout(BoxConstraints constraints, GroupLayoutChildren c) {
-    // constraints 已经是外层处理好的总宽范围 [有效总宽下限, 有效总宽上限]
+  Size performLayout(BoxConstraints constraints) {
     final double totalMaxW = constraints.maxWidth;
     final double totalMinW = constraints.minWidth;
     final rowCount = (itemCount / columns).ceil();
 
-    // === Pass 1: loose 测量 ===
+    // === Pass 1: loose 测量所有 child ===
     double titleWidth = 0, titleHeight = 0;
-    if (c.hasChild(_kTitleId)) {
-      final ts = c.layoutChild(_kTitleId, BoxConstraints(
-        minWidth: 0, maxWidth: totalMaxW,
-        minHeight: 0, maxHeight: double.infinity,
-      ));
-      titleWidth = ts.width;
-      titleHeight = ts.height;
-    }
-
-    final itemHeights = <double>[];
+    double dividerHeight = 0;
+    final rowHeights = List<double>.filled(rowCount, 0);
     double maxItemWidth = 0;
-    for (var i = 0; i < itemCount; i++) {
-      final s = c.layoutChild(i, BoxConstraints(
-        minWidth: 0, maxWidth: totalMaxW / columns,
-        minHeight: 0, maxHeight: double.infinity,
-      ));
-      maxItemWidth = math.max(maxItemWidth, s.width);
-      itemHeights.add(s.height);
-    }
-
-    // 列宽 = max(title 均摊, 最宽 item)
-    double colWidth = math.max(
-      columns <= 1 ? titleWidth : titleWidth / columns,
-      maxItemWidth,
+    final loose = BoxConstraints(
+      minWidth: 0, maxWidth: totalMaxW,
+      minHeight: 0, maxHeight: double.infinity,
+    );
+    final itemLoose = BoxConstraints(
+      minWidth: 0, maxWidth: totalMaxW / columns,
+      minHeight: 0, maxHeight: double.infinity,
     );
 
-    // 总宽 = max(列宽总和, title)，夹到外层给的 [totalMinW, totalMaxW]
-    double totalWidth = columns <= 1 ? colWidth : colWidth * columns;
-    totalWidth = math.max(totalWidth, titleWidth);
-    totalWidth = math.max(totalWidth, totalMinW);
-    totalWidth = math.min(totalWidth, totalMaxW);
-    colWidth = totalWidth / columns;
-
-    // divider
-    double dividerHeight = 0;
-    if (c.hasChild(_kDividerId)) {
-      dividerHeight = c.layoutChild(_kDividerId, BoxConstraints.tightFor(width: totalWidth)).height;
-    }
-
-    // 每行高度 = 该行最高 item
-    final rowHeights = List<double>.filled(rowCount, 0);
-    for (var r = 0; r < rowCount; r++) {
-      double rh = 0;
-      for (var col = 0; col < columns; col++) {
-        final idx = r * columns + col;
-        if (idx < itemHeights.length) rh = math.max(rh, itemHeights[idx]);
-      }
-      rowHeights[r] = rh;
-    }
-
-    // === Pass 2: item tight 到最终列宽 + 行高 ===
-    for (var r = 0; r < rowCount; r++) {
-      for (var col = 0; col < columns; col++) {
-        final idx = r * columns + col;
-        if (idx < itemCount) {
-          c.layoutChild(idx, BoxConstraints.tightFor(width: colWidth, height: rowHeights[r]));
-        }
+    for (final entry in children) {
+      if (entry.id == _kTitleId) {
+        final s = entry.layout(loose);
+        titleWidth = s.width;
+        titleHeight = s.height;
+      } else if (entry.id == _kDividerId) {
+        dividerHeight = entry.layout(loose).height;
+      } else {
+        final idx = entry.id as int;
+        final s = entry.layout(itemLoose);
+        maxItemWidth = math.max(maxItemWidth, s.width);
+        rowHeights[idx ~/ columns] = math.max(rowHeights[idx ~/ columns], s.height);
       }
     }
 
-    // 自身尺寸
+    // 总宽 = max(title, columns × 最宽 item)，夹外层 [totalMinW, totalMaxW]
+    double totalWidth = math.max(titleWidth, columns * maxItemWidth);
+    totalWidth = totalWidth.clamp(totalMinW, totalMaxW);
+    double colWidth = totalWidth / columns;
+
+    // === Pass 2: tight + 定位 ===
+    double curY = 0;
+    for (final entry in children) {
+      if (entry.id == _kTitleId) {
+        entry.position(Offset(0, curY));
+        curY += titleHeight;
+      } else if (entry.id == _kDividerId) {
+        dividerHeight = entry.layout(BoxConstraints.tightFor(width: totalWidth)).height;
+        entry.position(Offset(0, curY));
+        curY += dividerHeight;
+      } else {
+        final idx = entry.id as int;
+        final r = idx ~/ columns;
+        final col = idx % columns;
+        entry.layout(BoxConstraints.tightFor(width: colWidth, height: rowHeights[r]));
+        entry.position(Offset(col * colWidth, curY));
+        if (col == columns - 1 || idx == itemCount - 1) curY += rowHeights[r];
+      }
+    }
+
     double menuHeight = titleHeight + dividerHeight;
     for (final rh in rowHeights) {
       menuHeight += rh;
     }
-
-    // 定位 children
-    double curY = 0;
-    if (c.hasChild(_kTitleId)) {
-      c.positionChild(_kTitleId, Offset(0, curY));
-      curY += titleHeight;
-    }
-    if (c.hasChild(_kDividerId)) {
-      c.positionChild(_kDividerId, Offset(0, curY));
-      curY += dividerHeight;
-    }
-    for (var r = 0; r < rowCount; r++) {
-      for (var col = 0; col < columns; col++) {
-        final idx = r * columns + col;
-        if (idx < itemCount) c.positionChild(idx, Offset(col * colWidth, curY));
-      }
-      curY += rowHeights[r];
-    }
-
     return Size(totalWidth, menuHeight);
   }
 

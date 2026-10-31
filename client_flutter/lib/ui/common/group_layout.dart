@@ -10,9 +10,8 @@ import 'package:flutter/rendering.dart';
 /// and **return** the widget's final size — much like Android's `ViewGroup`
 /// where you measure children first, then set your own size.
 ///
-/// Each child must be wrapped in [LayoutId]. The delegate must call
-/// [GroupLayoutChildren.layoutChild] on **every** child exactly once; calling
-/// it twice or skipping a child triggers an assertion in debug mode.
+/// Each child must be wrapped in [LayoutId]. The delegate walks children via
+/// its own [children] / [hasChild] / [layoutChild] / [positionChild] helpers.
 class GroupLayout extends MultiChildRenderObjectWidget {
   const GroupLayout({
     super.key,
@@ -33,106 +32,104 @@ class GroupLayout extends MultiChildRenderObjectWidget {
   }
 }
 
+/// A child entry exposed by [GroupLayoutDelegate.children].
+class LayoutEntry {
+  const LayoutEntry(this.id, this._child);
+
+  final Object id;
+  final RenderBox _child;
+
+  /// Lay out this child under [constraints] and return its size.
+  Size layout(BoxConstraints constraints) {
+    _child.layout(constraints, parentUsesSize: true);
+    return _child.size;
+  }
+
+  /// Position this child at [offset] (relative to the widget's top-left).
+  void position(Offset offset) {
+    (_child.parentData as MultiChildLayoutParentData).offset = offset;
+  }
+}
+
 /// Delegate for [GroupLayout]. Implement [performLayout] to lay out children,
 /// position them, and return the computed size.
 ///
-/// You **must** call [GroupLayoutChildren.layoutChild] on every child exactly
-/// once during [performLayout]. In debug mode, calling it twice or skipping a
-/// child will assert.
+/// Walk children via [children], or use [hasChild] / [layoutChild] /
+/// [positionChild] when you already know the id. These helpers are inherited
+/// from this base class and use the render object bound by [RenderGroupLayout].
 abstract class GroupLayoutDelegate {
-  const GroupLayoutDelegate();
+  GroupLayoutDelegate();
 
-  /// Lay out children via [children], position them, and return this widget's
-  /// final size. The returned size is clamped to [constraints].
-  Size performLayout(BoxConstraints constraints, GroupLayoutChildren children);
+  late RenderGroupLayout _render;
+
+  /// Called by [RenderGroupLayout] when the delegate is first attached.
+  /// Do not override.
+  void bindRender(RenderGroupLayout render) {
+    _render = render;
+  }
+
+  /// Lay out children, position them, and return this widget's final size.
+  /// The returned size is clamped to [constraints].
+  ///
+  /// Inside this method you may call [children], [layoutChild],
+  /// [positionChild], and [hasChild] — all inherited from this base class.
+  Size performLayout(BoxConstraints constraints);
 
   /// Whether relayout is needed when [oldDelegate] is replaced by this one.
   bool shouldRelayout(covariant GroupLayoutDelegate oldDelegate) => true;
 
-  /// Compute the minimum intrinsic width for [height]. Return 0 if your layout
-  /// does not use intrinsic widths. Override this so ancestors (e.g. [Row])
-  /// can properly size this widget.
-  double computeMinIntrinsicWidth(double height) => 0;
+  // === 便利 API ===
 
-  /// Compute the maximum intrinsic width for [height]. Return 0 if your layout
-  /// does not use intrinsic widths.
-  double computeMaxIntrinsicWidth(double height) => 0;
-
-  /// Compute the minimum intrinsic height for [width]. Return 0 if your layout
-  /// does not use intrinsic heights.
-  double computeMinIntrinsicHeight(double width) => 0;
-
-  /// Compute the maximum intrinsic height for [width]. Return 0 if your layout
-  /// does not use intrinsic heights.
-  double computeMaxIntrinsicHeight(double width) => 0;
-}
-
-/// Accessor passed to [GroupLayoutDelegate.performLayout]. Use it to lay out
-/// and position children by their [LayoutId].
-class GroupLayoutChildren {
-  GroupLayoutChildren._(this._render);
-
-  final RenderGroupLayout _render;
-  final Map<Object, RenderBox> _byId = {};
-  final Set<Object> _laidOut = {};
-
-  void _index() {
-    _byId.clear();
-    _laidOut.clear();
+  /// Iterate every child with its [LayoutId].
+  Iterable<LayoutEntry> get children sync* {
     RenderBox? child = _render.firstChild;
     while (child != null) {
-      final pd = child.parentData as _GroupLayoutParentData;
+      final pd = child.parentData as MultiChildLayoutParentData;
       final id = pd.id;
-      if (id != null) {
-        assert(
-          !_byId.containsKey(id),
-          'GroupLayout: duplicate LayoutId "$id". Each child must have a unique id.',
-        );
-        _byId[id] = child;
-      }
+      if (id != null) yield LayoutEntry(id, child);
       child = _render.childAfter(child);
     }
   }
 
-  void _assertAllLaidOut() {
-    for (final id in _byId.keys) {
-      assert(
-        _laidOut.contains(id),
-        'GroupLayout: child "$id" was never laid out. You must call layoutChild() for every child.',
-      );
+  bool hasChild(Object id) {
+    for (final e in children) {
+      if (e.id == id) return true;
     }
+    return false;
   }
 
-  /// Whether a child with [id] exists.
-  bool hasChild(Object id) => _byId.containsKey(id);
-
-  /// Lay out the child with [id] under [constraints] and return its size.
-  /// May be called more than once (useful for a two-pass approach: layout
-  /// loose to measure natural size, then layout tight for final placement).
   Size layoutChild(Object id, BoxConstraints constraints) {
-    final child = _byId[id];
-    assert(child != null, 'GroupLayout: no child with id "$id"');
-    _laidOut.add(id);
-    child!.layout(constraints, parentUsesSize: true);
-    return child.size;
+    for (final e in children) {
+      if (e.id == id) return e.layout(constraints);
+    }
+    throw StateError('GroupLayout: no child with id "$id"');
   }
 
-  /// Position the child with [id] at [offset] (relative to this widget's
-  /// top-left corner). Call after [layoutChild].
   void positionChild(Object id, Offset offset) {
-    final child = _byId[id];
-    assert(child != null, 'GroupLayout: no child with id "$id"');
-    (child!.parentData as _GroupLayoutParentData).offset = offset;
+    for (final e in children) {
+      if (e.id == id) {
+        e.position(offset);
+        return;
+      }
+    }
+    throw StateError('GroupLayout: no child with id "$id"');
   }
-}
 
-class _GroupLayoutParentData extends MultiChildLayoutParentData {}
+  // === intrinsics（子类按需 override）===
+
+  double computeMinIntrinsicWidth(double height) => 0;
+  double computeMaxIntrinsicWidth(double height) => 0;
+  double computeMinIntrinsicHeight(double width) => 0;
+  double computeMaxIntrinsicHeight(double width) => 0;
+}
 
 class RenderGroupLayout extends RenderBox
     with
-        ContainerRenderObjectMixin<RenderBox, _GroupLayoutParentData>,
-        RenderBoxContainerDefaultsMixin<RenderBox, _GroupLayoutParentData> {
-  RenderGroupLayout({required this._delegate});
+        ContainerRenderObjectMixin<RenderBox, MultiChildLayoutParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, MultiChildLayoutParentData> {
+  RenderGroupLayout({required this._delegate}) {
+    _delegate.bindRender(this);
+  }
 
   GroupLayoutDelegate _delegate;
 
@@ -140,6 +137,7 @@ class RenderGroupLayout extends RenderBox
     if (_delegate == value) return;
     final old = _delegate;
     _delegate = value;
+    _delegate.bindRender(this);
     if (value.runtimeType != old.runtimeType || value.shouldRelayout(old)) {
       markNeedsLayout();
     }
@@ -147,18 +145,14 @@ class RenderGroupLayout extends RenderBox
 
   @override
   void setupParentData(RenderObject child) {
-    if (child.parentData is! _GroupLayoutParentData) {
-      child.parentData = _GroupLayoutParentData();
+    if (child.parentData is! MultiChildLayoutParentData) {
+      child.parentData = MultiChildLayoutParentData();
     }
   }
 
   @override
   void performLayout() {
-    final accessor = GroupLayoutChildren._(this);
-    accessor._index();
-    final computed = _delegate.performLayout(constraints, accessor);
-    size = constraints.constrain(computed);
-    accessor._assertAllLaidOut();
+    size = constraints.constrain(_delegate.performLayout(constraints));
   }
 
   @override
@@ -172,24 +166,16 @@ class RenderGroupLayout extends RenderBox
   }
 
   @override
-  double computeMinIntrinsicWidth(double height) {
-    return _delegate.computeMinIntrinsicWidth(height);
-  }
+  double computeMinIntrinsicWidth(double height) => _delegate.computeMinIntrinsicWidth(height);
 
   @override
-  double computeMaxIntrinsicWidth(double height) {
-    return _delegate.computeMaxIntrinsicWidth(height);
-  }
+  double computeMaxIntrinsicWidth(double height) => _delegate.computeMaxIntrinsicWidth(height);
 
   @override
-  double computeMinIntrinsicHeight(double width) {
-    return _delegate.computeMinIntrinsicHeight(width);
-  }
+  double computeMinIntrinsicHeight(double width) => _delegate.computeMinIntrinsicHeight(width);
 
   @override
-  double computeMaxIntrinsicHeight(double width) {
-    return _delegate.computeMaxIntrinsicHeight(width);
-  }
+  double computeMaxIntrinsicHeight(double width) => _delegate.computeMaxIntrinsicHeight(width);
 
   @override
   double? computeDistanceToActualBaseline(TextBaseline baseline) {
