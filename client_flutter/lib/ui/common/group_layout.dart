@@ -17,8 +17,8 @@ class GroupLayout extends MultiChildRenderObjectWidget {
   const GroupLayout({
     super.key,
     required this.delegate,
-    required List<Widget> children,
-  }) : super(children: children);
+    required super.children,
+  });
 
   final GroupLayoutDelegate delegate;
 
@@ -109,8 +109,6 @@ class GroupLayoutChildren {
   /// Lay out the child with [id] under [constraints] and return its size.
   /// May be called more than once (useful for a two-pass approach: layout
   /// loose to measure natural size, then layout tight for final placement).
-  /// parentUsesSize=false: child 内部 markNeedsLayout 不会冒泡到 parent，
-  /// 防止二次 layout 触发无限循环。
   Size layoutChild(Object id, BoxConstraints constraints) {
     final child = _byId[id];
     assert(child != null, 'GroupLayout: no child with id "$id"');
@@ -134,7 +132,7 @@ class RenderGroupLayout extends RenderBox
     with
         ContainerRenderObjectMixin<RenderBox, _GroupLayoutParentData>,
         RenderBoxContainerDefaultsMixin<RenderBox, _GroupLayoutParentData> {
-  RenderGroupLayout({required GroupLayoutDelegate delegate}) : _delegate = delegate;
+  RenderGroupLayout({required this._delegate});
 
   GroupLayoutDelegate _delegate;
 

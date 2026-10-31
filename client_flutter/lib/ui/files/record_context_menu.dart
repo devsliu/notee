@@ -77,7 +77,7 @@ Future<void> showRecordContextMenu(
   }
 
   final result = await showPopup(
-    maxWidth: 200,
+    maxWidth: 150,
     minWidth: 120,
     modal: true,
     columns: isFolder ? 2 : 1,

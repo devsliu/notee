@@ -5,8 +5,6 @@ import 'package:flutter/material.dart';
 
 import 'group_layout.dart';
 
-const double _kMenuScreenPadding = 8.0;
-
 /// Controller for a popup shown by [showPopup]. Lets the caller dismiss the
 /// menu or rebuild its items (e.g. after closing a tab, refresh the list
 /// without closing & re-opening the popup).
@@ -93,13 +91,11 @@ Future<T?> showPopup<T>({
               child: const SizedBox.expand(),
             ),
           ),
-          // 菜单整体：内层 CustomMultiChildLayout 自己处理 Material 背景 + 列布局
+          // 菜单整体
           LayoutId(
             id: _FullMenuLayoutDelegate._kMenuContent,
             child: _MenuContent<T>(
               columns: columns,
-              minWidth: minWidth,
-              maxWidth: maxWidth,
               title: title,
               items: currentItems,
               onItemTap: dismiss,
@@ -144,13 +140,21 @@ class _FullMenuLayoutDelegate extends MultiChildLayoutDelegate {
       positionChild(_kHitLayer, Offset.zero);
     }
 
-    // 2. menu content：loose [0, overlaySize.width - 2*padding] 让 Material shrink-wrap
+    // 2. menu content
+    //    外层职责：处理屏幕边界、padding、把 infinity maxWidth 替换成可用屏幕宽度
+    //    内层职责：只根据传入的 min/max/columns 计算列宽和定位
     if (hasChild(_kMenuContent)) {
-      final availWidth = overlaySize.width - 2 * _kMenuScreenPadding;
-      final maxInnerWidth = maxWidth == double.infinity ? availWidth : math.min(maxWidth * columns, availWidth);
+      final double availWidth = overlaySize.width - 2 * _kMenuScreenPadding;
+      // maxWidth == infinity → 用满可用屏幕；否则用 min(maxWidth * cols, 可用屏幕)
+      final double effectiveMaxW = maxWidth == double.infinity
+          ? availWidth
+          : math.min(maxWidth * columns, availWidth);
+      // minWidth 也限制在可用宽度内，避免内层参数反了
+      final double effectiveMinW = math.min(minWidth * columns, availWidth);
+
       final c = BoxConstraints(
-        minWidth: 0,
-        maxWidth: maxInnerWidth,
+        minWidth: effectiveMinW,
+        maxWidth: effectiveMaxW,
         minHeight: 0,
         maxHeight: overlaySize.height,
       );
@@ -176,7 +180,6 @@ class _FullMenuLayoutDelegate extends MultiChildLayoutDelegate {
     if (below && aboveOk) {
       y = anchorRect.top - childSize.height;
     }
-    final originalY = y;
     // 先算上下限，避免 childSize ≥ screenSize 时 upper < lower 导致 clamp 炸
     final double xLower = _kMenuScreenPadding;
     final double xUpper = math.max(xLower, screenSize.width - childSize.width - _kMenuScreenPadding);
@@ -184,10 +187,6 @@ class _FullMenuLayoutDelegate extends MultiChildLayoutDelegate {
     final double yUpper = math.max(yLower, screenSize.height - childSize.height - _kMenuScreenPadding);
     x = x.clamp(xLower, xUpper);
     y = y.clamp(yLower, yUpper);
-    debugPrint('[MenuOffset] anchorTop=${anchorRect.top.toStringAsFixed(0)} anchorBot=${anchorRect.bottom.toStringAsFixed(0)} '
-        'menuH=${childSize.height.toStringAsFixed(0)} menuW=${childSize.width.toStringAsFixed(0)} '
-        'screenH=${screenSize.height.toStringAsFixed(0)} screenW=${screenSize.width.toStringAsFixed(0)} '
-        'below=$below aboveOk=$aboveOk origY=${originalY.toStringAsFixed(0)} finalY=${y.toStringAsFixed(0)}');
     return Offset(x, y);
   }
 
@@ -202,14 +201,9 @@ class _FullMenuLayoutDelegate extends MultiChildLayoutDelegate {
   }
 }
 
-// 菜单整体：Material 包着 CustomMultiChildLayout（title/divider/items）
-// Material 拿到外层约束 [0, maxWidth*columns]，shrink-wrap 内部尺寸 → 圆角裁剪生效
-// delegate 手动算位置：title 跨全宽、items 行列排布、同行等高、等列宽
 class _MenuContent<T> extends StatelessWidget {
   const _MenuContent({
     required this.columns,
-    required this.minWidth,
-    required this.maxWidth,
     required this.title,
     required this.items,
     required this.onItemTap,
@@ -217,8 +211,6 @@ class _MenuContent<T> extends StatelessWidget {
   });
 
   final int columns;
-  final double minWidth;
-  final double maxWidth;
   final Widget? title;
   final List<PopupItem<T>> items;
   final ValueChanged<T?> onItemTap;
@@ -250,10 +242,7 @@ class _MenuContent<T> extends StatelessWidget {
       child: GroupLayout(
         delegate: _MenuLayoutDelegate(
           columns: columns,
-          minWidth: minWidth,
-          maxWidth: maxWidth,
           itemCount: items.length,
-          hasTitle: title != null,
         ),
         children: [
           if (title != null)
@@ -287,72 +276,57 @@ const int _kDividerId = -2;
 class _MenuLayoutDelegate extends GroupLayoutDelegate {
   _MenuLayoutDelegate({
     required this.columns,
-    required this.minWidth,
-    required this.maxWidth,
     required this.itemCount,
-    required this.hasTitle,
   });
 
   final int columns;
-  final double minWidth;
-  final double maxWidth;
   final int itemCount;
-  final bool hasTitle;
 
   @override
   Size performLayout(BoxConstraints constraints, GroupLayoutChildren c) {
-    final outerMaxW = constraints.maxWidth;
+    // constraints 已经是外层处理好的总宽范围 [有效总宽下限, 有效总宽上限]
+    final double totalMaxW = constraints.maxWidth;
+    final double totalMinW = constraints.minWidth;
     final rowCount = (itemCount / columns).ceil();
-    debugPrint('[MenuInner] START outerMaxW=$outerMaxW cols=$columns min=$minWidth max=$maxWidth items=$itemCount hasTitle=$hasTitle');
 
-    // === Pass 1: 全部 loose 测量 ===
+    // === Pass 1: loose 测量 ===
     double titleWidth = 0, titleHeight = 0;
-    if (hasTitle && c.hasChild(_kTitleId)) {
+    if (c.hasChild(_kTitleId)) {
       final ts = c.layoutChild(_kTitleId, BoxConstraints(
-        minWidth: 0, maxWidth: outerMaxW,
+        minWidth: 0, maxWidth: totalMaxW,
         minHeight: 0, maxHeight: double.infinity,
       ));
       titleWidth = ts.width;
       titleHeight = ts.height;
-      debugPrint('[MenuInner] title w=$titleWidth h=$titleHeight');
     }
 
     final itemHeights = <double>[];
     double maxItemWidth = 0;
     for (var i = 0; i < itemCount; i++) {
       final s = c.layoutChild(i, BoxConstraints(
-        minWidth: 0, maxWidth: outerMaxW / columns,
+        minWidth: 0, maxWidth: totalMaxW / columns,
         minHeight: 0, maxHeight: double.infinity,
       ));
       maxItemWidth = math.max(maxItemWidth, s.width);
       itemHeights.add(s.height);
     }
-    debugPrint('[MenuInner] maxItemWidth=$maxItemWidth itemPass1ConstraintMax=${outerMaxW / columns}');
 
-    // 列宽 = max(title 均摊, 最宽 item)，先撑满 minWidth，再限制 maxWidth（有限时）
+    // 列宽 = max(title 均摊, 最宽 item)
     double colWidth = math.max(
       columns <= 1 ? titleWidth : titleWidth / columns,
       maxItemWidth,
     );
-    debugPrint('[MenuInner] colWidth before clamp=$colWidth titlePerCol=${columns <= 1 ? titleWidth : titleWidth / columns}');
-    colWidth = math.max(colWidth, minWidth);
-    if (maxWidth != double.infinity) {
-      colWidth = math.min(colWidth, maxWidth);
-    }
-    debugPrint('[MenuInner] colWidth after clamp=$colWidth');
 
-    // 总宽 = max(列宽总和, title)，硬限制在 outerMaxW（外层给的最大宽度）内
+    // 总宽 = max(列宽总和, title)，夹到外层给的 [totalMinW, totalMaxW]
     double totalWidth = columns <= 1 ? colWidth : colWidth * columns;
-    debugPrint('[MenuInner] totalWidth before title merge=$totalWidth colWidth*cols=${colWidth * columns} titleWidth=$titleWidth');
     totalWidth = math.max(totalWidth, titleWidth);
-    debugPrint('[MenuInner] totalWidth after title merge=$totalWidth');
-    totalWidth = math.min(totalWidth, outerMaxW);
-    debugPrint('[MenuInner] totalWidth after outerMaxW clamp=$totalWidth outerMaxW=$outerMaxW');
+    totalWidth = math.max(totalWidth, totalMinW);
+    totalWidth = math.min(totalWidth, totalMaxW);
     colWidth = totalWidth / columns;
 
     // divider
     double dividerHeight = 0;
-    if (hasTitle && c.hasChild(_kDividerId)) {
+    if (c.hasChild(_kDividerId)) {
       dividerHeight = c.layoutChild(_kDividerId, BoxConstraints.tightFor(width: totalWidth)).height;
     }
 
@@ -367,13 +341,12 @@ class _MenuLayoutDelegate extends GroupLayoutDelegate {
       rowHeights[r] = rh;
     }
 
-    // === Pass 2: item 最终宽高（填满整行，解决 InkWell 半按效果）===
-    final double effectiveColWidth = colWidth;
+    // === Pass 2: item tight 到最终列宽 + 行高 ===
     for (var r = 0; r < rowCount; r++) {
       for (var col = 0; col < columns; col++) {
         final idx = r * columns + col;
         if (idx < itemCount) {
-          c.layoutChild(idx, BoxConstraints.tightFor(width: effectiveColWidth, height: rowHeights[r]));
+          c.layoutChild(idx, BoxConstraints.tightFor(width: colWidth, height: rowHeights[r]));
         }
       }
     }
@@ -386,11 +359,11 @@ class _MenuLayoutDelegate extends GroupLayoutDelegate {
 
     // 定位 children
     double curY = 0;
-    if (hasTitle && c.hasChild(_kTitleId)) {
+    if (c.hasChild(_kTitleId)) {
       c.positionChild(_kTitleId, Offset(0, curY));
       curY += titleHeight;
     }
-    if (hasTitle && c.hasChild(_kDividerId)) {
+    if (c.hasChild(_kDividerId)) {
       c.positionChild(_kDividerId, Offset(0, curY));
       curY += dividerHeight;
     }
@@ -408,10 +381,7 @@ class _MenuLayoutDelegate extends GroupLayoutDelegate {
   @override
   bool shouldRelayout(covariant _MenuLayoutDelegate oldDelegate) {
     return columns != oldDelegate.columns ||
-        minWidth != oldDelegate.minWidth ||
-        maxWidth != oldDelegate.maxWidth ||
-        itemCount != oldDelegate.itemCount ||
-        hasTitle != oldDelegate.hasTitle;
+        itemCount != oldDelegate.itemCount;
   }
 }
 
