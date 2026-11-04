@@ -114,7 +114,7 @@ jobs:
           ver="${GITHUB_REF_NAME#v}"
           sed -i "s/^version: .*/version: $ver+$GITHUB_RUN_NUMBER/" pubspec.yaml
           flutter pub get
-          flutter build apk --release --target-platform android-arm64 --dart-define=GIT_COMMIT=$(git rev-parse --short HEAD) --dart-define=BUILD_TIME=$(date +%Y-%m-%d_%H:%M)
+          flutter build apk --release --target-platform android-arm64 --extra-gen-snapshot-options=--strip --dart-define=GIT_COMMIT=$(git rev-parse --short HEAD) --dart-define=BUILD_TIME=$(date +%Y-%m-%d_%H:%M)
       - name: Rename APK
         run: |
           ver="${{ github.ref_name }}"
