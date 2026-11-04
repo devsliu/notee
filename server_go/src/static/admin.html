@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>管理后台</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #f7f7f7;
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+        }
+        #mainContainer {
+            background: #fff;
+            padding: 40px 32px 32px 32px;
+            border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+            min-width: 350px;
+        }
+        h2, h3 {
+            text-align: center;
+            font-size: 2em;
+            margin-bottom: 18px;
+        }
+        input[type="text"], input[type="password"] {
+            display: block;
+            width: 100%;
+            font-size: 1.2em;
+            padding: 10px 8px;
+            margin: 12px 0 18px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            display: block;
+            width: 100%;
+            font-size: 1.2em;
+            padding: 10px 0;
+            margin-bottom: 18px;
+            background: #1976d2;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #1256a3;
+        }
+        #loginMsg {
+            color: #d32f2f;
+            text-align: center;
+            font-size: 1.1em;
+            margin-top: 8px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 18px;
+        }
+        th, td {
+            border: 1px solid #bbb;
+            font-size: 1.05em;
+            text-align: center;
+            padding: 2px 6px;
+            vertical-align: middle !important;
+            height: 32px;
+            position: relative;
+        }
+        td .action-btns {
+            display: inline-flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }
+        .edit-btn, .del-btn {
+            font-size: 1em;
+            padding: 2px 12px;
+            min-width: 60px;
+            width: auto;
+            background: #43a047;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: background 0.2s;
+            line-height: 1.2;
+            display: inline-block;
+            vertical-align: middle;
+            box-sizing: border-box;
+        }
+        .del-btn {
+            background: #e53935;
+            color: #fff;
+        }
+        .edit-btn.cancel {
+            background: #bdbdbd;
+            color: #333;
+        }
+        .edit-btn:hover {
+            background: #2e7031;
+        }
+        .del-btn:hover {
+            background: #b71c1c;
+        }
+        th {
+            background: #f0f0f0;
+        }
+        #adminPanel h3 {
+            font-size: 1.3em;
+            margin: 18px 0 10px 0;
+        }
+    </style>
+</head>
+<body>
+<div id="mainContainer">
+<div id="login">
+    <h2>管理员登录</h2>
+    <input id="username" placeholder="用户名" value="admin" type="text">
+    <input id="password" type="password" placeholder="密码">
+    <button onclick="login()">登录</button>
+    <div id="loginMsg"></div>
+</div>
+<div id="adminPanel" style="display:none;">
+    <h2>用户管理</h2>
+    <h3>创建用户</h3>
+    <input id="newName" placeholder="用户名" type="text">
+    <input id="newPwd" placeholder="密码" type="text">
+    <button onclick="createUser()">创建</button>
+    <h3>用户列表</h3>
+    <table border="1" id="userTable"></table>
+    <h3>修改用户信息</h3>
+    <div id="editUserBox" style="display:none; margin-bottom:18px;">
+        <input id="editUserId" type="hidden">
+        <label style="font-size:1.1em;">用户名：</label>
+        <input id="editUserName" type="text" style="margin-bottom:8px;">
+        <label style="font-size:1.1em;">密码：</label>
+        <input id="editUserPwd" type="text" style="margin-bottom:8px;">
+        <button class="edit-btn" onclick="submitEditUser()">保存修改</button>
+        <button class="edit-btn cancel" onclick="cancelEditUser()">取消</button>
+    </div>
+</div>
+</div>
+<script>
+// ===== 标准 MD5(RFC 1321), UTF-8 输入, 返回大写十六进制 =====
+// 与客户端(Dart crypto)的 md5(utf8.encode(name + '_' + password)).toUpperCase() 完全一致.
+// 管理端与客户端遵循同一协议: 浏览器侧完成哈希, 服务端原样存储, 不接触明文密码.
+var MD5 = (function () {
+    function rotateLeft(lValue, iShiftBits) {
+        return (lValue << iShiftBits) | (lValue >>> (32 - iShiftBits));
+    }
+    function addUnsigned(lX, lY) {
+        var lX4, lY4, lX8, lY8, lResult;
+        lX8 = (lX & 0x80000000);
+        lY8 = (lY & 0x80000000);
+        lX4 = (lX & 0x40000000);
+        lY4 = (lY & 0x40000000);
+        lResult = (lX & 0x3FFFFFFF) + (lY & 0x3FFFFFFF);
+        if (lX4 & lY4) return (lResult ^ 0x80000000 ^ lX8 ^ lY8);
+        if (lX4 | lY4) {
+            if (lResult & 0x40000000) return (lResult ^ 0xC0000000 ^ lX8 ^ lY8);
+            else return (lResult ^ 0x40000000 ^ lX8 ^ lY8);
+        }
+        return (lResult ^ lX8 ^ lY8);
+    }
+    function F(x, y, z) { return (x & y) | ((~x) & z); }
+    function G(x, y, z) { return (x & z) | (y & (~z)); }
+    function H(x, y, z) { return (x ^ y ^ z); }
+    function I(x, y, z) { return (y ^ (x | (~z))); }
+    function FF(a, b, c, d, x, s, ac) {
+        a = addUnsigned(a, addUnsigned(addUnsigned(F(b, c, d), x), ac));
+        return addUnsigned(rotateLeft(a, s), b);
+    }
+    function GG(a, b, c, d, x, s, ac) {
+        a = addUnsigned(a, addUnsigned(addUnsigned(G(b, c, d), x), ac));
+        return addUnsigned(rotateLeft(a, s), b);
+    }
+    function HH(a, b, c, d, x, s, ac) {
+        a = addUnsigned(a, addUnsigned(addUnsigned(H(b, c, d), x), ac));
+        return addUnsigned(rotateLeft(a, s), b);
+    }
+    function II(a, b, c, d, x, s, ac) {
+        a = addUnsigned(a, addUnsigned(addUnsigned(I(b, c, d), x), ac));
+        return addUnsigned(rotateLeft(a, s), b);
+    }
+    function convertToWordArray(str) {
+        var lWordCount;
+        var lMessageLength = str.length;
+        var lNumberOfWordsTemp1 = lMessageLength + 8;
+        var lNumberOfWordsTemp2 = (lNumberOfWordsTemp1 - (lNumberOfWordsTemp1 % 64)) / 64;
+        var lNumberOfWords = (lNumberOfWordsTemp2 + 1) * 16;
+        var lWordArray = Array(lNumberOfWords - 1);
+        var lBytePosition = 0;
+        var lByteCount = 0;
+        while (lByteCount < lMessageLength) {
+            lWordCount = (lByteCount - (lByteCount % 4)) / 4;
+            lBytePosition = (lByteCount % 4) * 8;
+            lWordArray[lWordCount] = (lWordArray[lWordCount] | (str.charCodeAt(lByteCount) << lBytePosition));
+            lByteCount++;
+        }
+        lWordCount = (lByteCount - (lByteCount % 4)) / 4;
+        lBytePosition = (lByteCount % 4) * 8;
+        lWordArray[lWordCount] = lWordArray[lWordCount] | (0x80 << lBytePosition);
+        lWordArray[lNumberOfWords - 2] = lMessageLength << 3;
+        lWordArray[lNumberOfWords - 1] = lMessageLength >>> 29;
+        return lWordArray;
+    }
+    function wordToHex(lValue) {
+        var wordToHexValue = "", wordToHexValueTemp = "", lByte, lCount;
+        for (lCount = 0; lCount <= 3; lCount++) {
+            lByte = (lValue >>> (lCount * 8)) & 255;
+            wordToHexValueTemp = "0" + lByte.toString(16);
+            wordToHexValue = wordToHexValue + wordToHexValueTemp.substr(wordToHexValueTemp.length - 2, 2);
+        }
+        return wordToHexValue;
+    }
+    function utf8Encode(string) {
+        string = string.replace(/\r\n/g, "\n");
+        var utftext = "";
+        for (var n = 0; n < string.length; n++) {
+            var c = string.charCodeAt(n);
+            if (c < 128) {
+                utftext += String.fromCharCode(c);
+            } else if (c > 127 && c < 2048) {
+                utftext += String.fromCharCode((c >> 6) | 192);
+                utftext += String.fromCharCode((c & 63) | 128);
+            } else {
+                utftext += String.fromCharCode((c >> 12) | 224);
+                utftext += String.fromCharCode(((c >> 6) & 63) | 128);
+                utftext += String.fromCharCode((c & 63) | 128);
+            }
+        }
+        return utftext;
+    }
+    return function (string) {
+        var x = [];
+        var k, aa, bb, cc, dd, a, b, c, d;
+        const S11 = 7, S12 = 12, S13 = 17, S14 = 22;
+        const S21 = 5, S22 = 9, S23 = 14, S24 = 20;
+        const S31 = 4, S32 = 11, S33 = 16, S34 = 23;
+        const S41 = 6, S42 = 10, S43 = 15, S44 = 21;
+        string = utf8Encode(string);
+        x = convertToWordArray(string);
+        a = 0x67452301; b = 0xEFCDAB89; c = 0x98BADCFE; d = 0x10325476;
+        for (k = 0; k < x.length; k += 16) {
+            aa = a; bb = b; cc = c; dd = d;
+            a = FF(a, b, c, d, x[k + 0], S11, 0xD76AA478);
+            d = FF(d, a, b, c, x[k + 1], S12, 0xE8C7B756);
+            c = FF(c, d, a, b, x[k + 2], S13, 0x242070DB);
+            b = FF(b, c, d, a, x[k + 3], S14, 0xC1BDCEEE);
+            a = FF(a, b, c, d, x[k + 4], S11, 0xF57C0FAF);
+            d = FF(d, a, b, c, x[k + 5], S12, 0x4787C62A);
+            c = FF(c, d, a, b, x[k + 6], S13, 0xA8304613);
+            b = FF(b, c, d, a, x[k + 7], S14, 0xFD469501);
+            a = FF(a, b, c, d, x[k + 8], S11, 0x698098D8);
+            d = FF(d, a, b, c, x[k + 9], S12, 0x8B44F7AF);
+            c = FF(c, d, a, b, x[k + 10], S13, 0xFFFF5BB1);
+            b = FF(b, c, d, a, x[k + 11], S14, 0x895CD7BE);
+            a = FF(a, b, c, d, x[k + 12], S11, 0x6B901122);
+            d = FF(d, a, b, c, x[k + 13], S12, 0xFD987193);
+            c = FF(c, d, a, b, x[k + 14], S13, 0xA679438E);
+            b = FF(b, c, d, a, x[k + 15], S14, 0x49B40821);
+            a = GG(a, b, c, d, x[k + 1], S21, 0xF61E2562);
+            d = GG(d, a, b, c, x[k + 6], S22, 0xC040B340);
+            c = GG(c, d, a, b, x[k + 11], S23, 0x265E5A51);
+            b = GG(b, c, d, a, x[k + 0], S24, 0xE9B6C7AA);
+            a = GG(a, b, c, d, x[k + 5], S21, 0xD62F105D);
+            d = GG(d, a, b, c, x[k + 10], S22, 0x02441453);
+            c = GG(c, d, a, b, x[k + 15], S23, 0xD8A1E681);
+            b = GG(b, c, d, a, x[k + 4], S24, 0xE7D3FBC8);
+            a = GG(a, b, c, d, x[k + 9], S21, 0x21E1CDE6);
+            d = GG(d, a, b, c, x[k + 14], S22, 0xC33707D6);
+            c = GG(c, d, a, b, x[k + 3], S23, 0xF4D50D87);
+            b = GG(b, c, d, a, x[k + 8], S24, 0x455A14ED);
+            a = GG(a, b, c, d, x[k + 13], S21, 0xA9E3E905);
+            d = GG(d, a, b, c, x[k + 2], S22, 0xFCEFA3F8);
+            c = GG(c, d, a, b, x[k + 7], S23, 0x676F02D9);
+            b = GG(b, c, d, a, x[k + 12], S24, 0x8D2A4C8A);
+            a = HH(a, b, c, d, x[k + 5], S31, 0xFFFA3942);
+            d = HH(d, a, b, c, x[k + 8], S32, 0x8771F681);
+            c = HH(c, d, a, b, x[k + 11], S33, 0x6D9D6122);
+            b = HH(b, c, d, a, x[k + 14], S34, 0xFDE5380C);
+            a = HH(a, b, c, d, x[k + 1], S31, 0xA4BEEA44);
+            d = HH(d, a, b, c, x[k + 4], S32, 0x4BDECFA9);
+            c = HH(c, d, a, b, x[k + 7], S33, 0xF6BB4B60);
+            b = HH(b, c, d, a, x[k + 10], S34, 0xBEBFBC70);
+            a = HH(a, b, c, d, x[k + 13], S31, 0x289B7EC6);
+            d = HH(d, a, b, c, x[k + 0], S32, 0xEAA127FA);
+            c = HH(c, d, a, b, x[k + 3], S33, 0xD4EF3085);
+            b = HH(b, c, d, a, x[k + 6], S34, 0x04881D05);
+            a = HH(a, b, c, d, x[k + 9], S31, 0xD9D4D039);
+            d = HH(d, a, b, c, x[k + 12], S32, 0xE6DB99E5);
+            c = HH(c, d, a, b, x[k + 15], S33, 0x1FA27CF8);
+            b = HH(b, c, d, a, x[k + 2], S34, 0xC4AC5665);
+            a = II(a, b, c, d, x[k + 0], S41, 0xF4292244);
+            d = II(d, a, b, c, x[k + 7], S42, 0x432AFF97);
+            c = II(c, d, a, b, x[k + 14], S43, 0xAB9423A7);
+            b = II(b, c, d, a, x[k + 5], S44, 0xFC93A039);
+            a = II(a, b, c, d, x[k + 12], S41, 0x655B59C3);
+            d = II(d, a, b, c, x[k + 3], S42, 0x8F0CCC92);
+            c = II(c, d, a, b, x[k + 10], S43, 0xFFEFF47D);
+            b = II(b, c, d, a, x[k + 1], S44, 0x85845DD1);
+            a = II(a, b, c, d, x[k + 8], S41, 0x6FA87E4F);
+            d = II(d, a, b, c, x[k + 15], S42, 0xFE2CE6E0);
+            c = II(c, d, a, b, x[k + 6], S43, 0xA3014314);
+            b = II(b, c, d, a, x[k + 13], S44, 0x4E0811A1);
+            a = II(a, b, c, d, x[k + 4], S41, 0xF7537E82);
+            d = II(d, a, b, c, x[k + 11], S42, 0xBD3AF235);
+            c = II(c, d, a, b, x[k + 2], S43, 0x2AD7D2BB);
+            b = II(b, c, d, a, x[k + 9], S44, 0xEB86D391);
+            a = addUnsigned(a, aa);
+            b = addUnsigned(b, bb);
+            c = addUnsigned(c, cc);
+            d = addUnsigned(d, dd);
+        }
+        return (wordToHex(a) + wordToHex(b) + wordToHex(c) + wordToHex(d)).toUpperCase();
+    };
+})();
+
+// 与客户端登录完全相同的口令变换: md5(用户名 + '_' + 明文密码), 大写
+function hashPassword(name, plainPwd) {
+    return MD5(name + '_' + plainPwd);
+}
+
+function login() {
+    fetch('/admin/login', {
+        method: 'POST',
+        body: JSON.stringify({Username: username.value, Password: password.value}),
+        headers: {'Content-Type': 'application/json'}
+    }).then(r => {
+        if (r.ok) {
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('adminPanel').style.display = '';
+            loadUsers();
+        } else {
+            loginMsg.innerText = '登录失败';
+        }
+    });
+}
+function createUser() {
+    const name = newName.value.trim();
+    const pwd = newPwd.value;
+    if (!name || !pwd) {
+        alert('用户名和密码不能为空');
+        return;
+    }
+    fetch('/admin/create_user', {
+        method: 'POST',
+        // 与客户端登录同一协议: 浏览器侧哈希 md5(name_password), 服务端原样存储
+        body: JSON.stringify({Name: name, Password: hashPassword(name, pwd)}),
+        headers: {'Content-Type': 'application/json'}
+    }).then (r => {
+        if (r.ok) {
+            newName.value = '';
+            newPwd.value = '';
+            loadUsers();
+        }
+        else alert('创建失败');
+    });
+}
+// HTML 实体转义: 用户名等字段由用户任意注册, 直接插入 innerHTML 会触发存储型 XSS
+function escHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// 按 id 缓存当前用户列表: 按钮事件通过 data-uid 查表取用户名, 避免把用户可控字符串拼进 HTML/onclick
+var usersById = {};
+function loadUsers() {
+    fetch('/admin/list_users').then(r => r.json()).then(users => {
+        if (users != null) {
+            usersById = {};
+            users.forEach(u => { usersById[u.id] = u; });
+            userTable.innerHTML = '<tr><th>ID</th><th>用户名</th><th>密码哈希</th><th>操作</th></tr>' +
+                users.map(u => `<tr>
+                    <td>${u.id}</td>
+                    <td>${escHtml(u.name)}</td>
+                    <td>${escHtml(u.password)}</td>
+                    <td><div class="action-btns">
+                        <button class="edit-btn" data-uid="${u.id}">修改</button>
+                        <button class="del-btn" data-uid="${u.id}">删除</button>
+                    </div></td>
+                </tr>`).join('');
+        } else {
+            userTable.innerHTML = '<tr><td colspan="4">没有用户</td></tr>';
+        }
+    });
+}
+// 事件委托: u.id 是服务端自增整数, data-uid 与查表均不含用户可控内容
+userTable.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-uid]');
+    if (!btn) return;
+    const id = Number(btn.dataset.uid);
+    if (btn.classList.contains('edit-btn')) {
+        const u = usersById[id];
+        if (u) showEditUser(u.id, u.name);
+    } else if (btn.classList.contains('del-btn')) {
+        delUser(id);
+    }
+});
+// 编辑前的原用户名: 哈希绑定用户名, 改名时必须同时设置新密码
+var editOriginalName = '';
+function showEditUser(id, name) {
+    document.getElementById('editUserBox').style.display = '';
+    document.getElementById('editUserId').value = id;
+    document.getElementById('editUserName').value = name;
+    // 不预填密码哈希: 留空表示不修改; 输入明文新密码后浏览器侧哈希发送
+    document.getElementById('editUserPwd').value = '';
+    document.getElementById('editUserPwd').placeholder = '留空则不修改密码';
+    editOriginalName = name;
+}
+function cancelEditUser() {
+    document.getElementById('editUserBox').style.display = 'none';
+}
+function submitEditUser() {
+    const id = Number(document.getElementById('editUserId').value);
+    const name = document.getElementById('editUserName').value.trim();
+    const pwd = document.getElementById('editUserPwd').value;
+    if (!name) {
+        alert('用户名不能为空');
+        return;
+    }
+    // 存储的口令哈希是 md5(用户名_密码), 用户名改变后旧哈希无法再用于新用户名登录,
+    // 因此改名必须同时提供新密码
+    if (!pwd && name !== editOriginalName) {
+        alert('修改用户名时必须同时设置新密码（口令哈希与用户名绑定）');
+        return;
+    }
+    // 密码非空: 发送 md5(新用户名_明文密码); 留空: 发送空串, 服务端保留原密码
+    const hashedPwd = pwd ? hashPassword(name, pwd) : '';
+    fetch('/admin/update_user', {
+        method: 'POST',
+        body: JSON.stringify({UserID: id, Name: name, Password: hashedPwd}),
+        headers: {'Content-Type': 'application/json'}
+    }).then(r => {
+        if (r.ok) {
+            loadUsers();
+            cancelEditUser();
+        } else {
+            alert('修改失败');
+        }
+    });
+}
+function delUser(id) {
+    if (!confirm('确定要删除该用户吗？')) return;
+    fetch('/admin/delete_user', {
+        method: 'POST',
+        body: JSON.stringify({UserID: id}),
+        headers: {'Content-Type': 'application/json'}
+    }).then (r => {
+        if (r.ok) loadUsers();
+        else alert('删除失败');
+    });
+}
+</script>
+</body>
+</html>

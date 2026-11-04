@@ -1,0 +1,47 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Flutter: Launch on Android Emulator",
+            "request": "launch",
+            "type": "dart",
+            "cwd": "${workspaceFolder}/client_flutter",
+            "program": "${workspaceFolder}/client_flutter/lib/main.dart",
+            "deviceId": "emulator-5554"
+        },
+        {
+            "name": "Flutter: Launch on Windows",
+            "request": "launch",
+            "type": "dart",
+            "cwd": "${workspaceFolder}/client_flutter",
+            "program": "${workspaceFolder}/client_flutter/lib/main.dart",
+            "deviceId": "windows",
+            "env" : { "HTTP_PROXY" : "http://127.0.0.1:20121" , "HTTPS_PROXY" : "http://127.0.0.1:20121" }
+        },
+        {
+            "name": "Flutter: Launch on Web",
+            "request": "launch",
+            "type": "dart",
+            "cwd": "${workspaceFolder}/client_flutter",
+            "program": "${workspaceFolder}/client_flutter/lib/main.dart",
+            "deviceId": "chrome"
+        },
+        {
+            "name": "Flutter: Attach to Device",
+            "type": "dart",
+            "request": "attach"
+        },
+        {
+            "name": "Go: Launch Server",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "cwd": "${workspaceFolder}/server_go",
+            "program": "${workspaceFolder}/server_go/src",
+            "output" : "${workspaceFolder}/server_go/__debug_bin.exe" ,
+            "env": {
+                "CGO_ENABLED": "1"
+            }
+        }
+    ]
+}

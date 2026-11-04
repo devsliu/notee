@@ -1,0 +1,207 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  packages: write
+  contents: write
+
+jobs:
+  # ========== Docker 镜像 ==========
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ko-build/setup-ko@v0.7
+      - name: Build docker tarball (ko, 与本地 build_docker.bat 一致)
+        working-directory: server_go/src
+        run: |
+          ver="${{ github.ref_name }}"
+          ver="${ver#v}"
+          KO_DOCKER_REPO=notee KO_DEFAULTTAG=$ver ko publish --bare --push=false --tarball=notee-server-docker-amd64.tar -t $ver .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-docker
+          path: server_go/src/notee-server-docker-amd64.tar
+
+  # ========== Windows 客户端 ==========
+  client-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter build windows
+        shell: pwsh
+        run: |
+          cd client_flutter
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          $bn = $env:GITHUB_RUN_NUMBER
+          (Get-Content pubspec.yaml) -replace '^version: .*', "version: $ver+$bn" | Set-Content pubspec.yaml
+          flutter pub get
+          $commit = git rev-parse --short HEAD
+          $time = Get-Date -Format "yyyy-MM-dd_HH:mm"
+          flutter build windows --release --dart-define=GIT_COMMIT=$commit --dart-define=BUILD_TIME=$time
+      - name: Package
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          Compress-Archive -Path client_flutter\build\windows\x64\runner\Release\* -DestinationPath "notee-client-windows-x64-$ver.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-windows
+          path: notee-client-windows-x64-${{ github.ref_name }}.zip
+
+  # ========== Linux 客户端 ==========
+  client-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter build linux
+        run: |
+          cd client_flutter
+          ver="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version: .*/version: $ver+$GITHUB_RUN_NUMBER/" pubspec.yaml
+          flutter pub get
+          flutter build linux --release --dart-define=GIT_COMMIT=$(git rev-parse --short HEAD) --dart-define=BUILD_TIME=$(date +%Y-%m-%d_%H:%M)
+      - name: Package
+        run: |
+          cd client_flutter/build/linux/x64/release
+          tar czf $GITHUB_WORKSPACE/notee-client-linux-x64-${{ github.ref_name }}.tar.gz bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-linux
+          path: notee-client-linux-x64-${{ github.ref_name }}.tar.gz
+
+  # ========== Android APK ==========
+  client-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install pinned NDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --channel=3 "ndk;29.0.13846066"
+      - name: Restore signing keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > client_flutter/android/app/keystore.jks
+      - name: Flutter build apk
+        run: |
+          cd client_flutter
+          ver="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version: .*/version: $ver+$GITHUB_RUN_NUMBER/" pubspec.yaml
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64 --dart-define=GIT_COMMIT=$(git rev-parse --short HEAD) --dart-define=BUILD_TIME=$(date +%Y-%m-%d_%H:%M)
+      - name: Rename APK
+        run: |
+          ver="${{ github.ref_name }}"
+          cp client_flutter/build/app/outputs/flutter-apk/app-release.apk "notee-android-arm64-v8a-$ver.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-android
+          path: notee-android-arm64-v8a-${{ github.ref_name }}.apk
+
+  # ========== macOS 客户端 (未签名) ==========
+  client-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter build macos
+        run: |
+          cd client_flutter
+          flutter create --platforms=macos .
+          ver="${GITHUB_REF_NAME#v}"
+          sed -i '' "s/^version: .*/version: $ver+$GITHUB_RUN_NUMBER/" pubspec.yaml
+          flutter pub get
+          flutter build macos --release --dart-define=GIT_COMMIT=$(git rev-parse --short HEAD) --dart-define=BUILD_TIME=$(date +%Y-%m-%d_%H:%M)
+      - name: Package
+        run: |
+          cd client_flutter/build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent notee.app $GITHUB_WORKSPACE/notee-client-macos-silicon-${{ github.ref_name }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-macos
+          path: notee-client-macos-silicon-${{ github.ref_name }}.zip
+
+  # ========== Windows 服务端 EXE ==========
+  server-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'server_go/src/go.mod'
+      - name: Go build
+        shell: pwsh
+        run: |
+          cd server_go/src
+          go build -o notee_server.exe .
+      - name: Package
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          $tmp = "server-windows-tmp"
+          mkdir $tmp -Force
+          Copy-Item server_go/src/notee_server.exe $tmp
+          Copy-Item server_go/config.ini $tmp
+          Compress-Archive -Path $tmp\* -DestinationPath "notee-server-windows-x64-$ver.zip" -Force
+          Remove-Item $tmp -Recurse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-windows
+          path: notee-server-windows-x64-${{ github.ref_name }}.zip
+
+  # ========== 创建 GitHub Release ==========
+  release:
+    needs: [docker, client-windows, client-linux, client-android, client-macos, server-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Generate changelog & create release
+        run: |
+          ver="${{ github.ref_name }}"
+          # 上一个 tag..HEAD 的提交作为 changelog
+          prev=$(git tag --sort=-creatordate | grep -v "^$ver$" | head -n 1)
+          if [ -n "$prev" ]; then range="${prev}..HEAD"; else range="-20"; fi
+          notes=$(git -c core.quotepath=false log $range --pretty=format:"- %s" | sed '/^$/d')
+          [ -z "$notes" ] && notes="init release"
+          gh release create "$ver" \
+            --title "Notee $ver" \
+            --notes "$notes" \
+            "artifacts/notee-client-windows-x64-$ver.zip" \
+            "artifacts/notee-client-linux-x64-$ver.tar.gz" \
+            "artifacts/notee-client-macos-silicon-$ver.zip" \
+            "artifacts/notee-android-arm64-v8a-$ver.apk" \
+            "artifacts/notee-server-windows-x64-$ver.zip" \
+            "artifacts/notee-server-docker-amd64.tar"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

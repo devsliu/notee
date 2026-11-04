@@ -1,0 +1,12 @@
+diff --git a/libs/appflowy_editor/lib/src/editor/block_component/table_block_component/table_col.dart b/libs/appflowy_editor/lib/src/editor/block_component/table_block_component/table_col.dart
+--- a/libs/appflowy_editor/lib/src/editor/block_component/table_block_component/table_col.dart
++++ b/libs/appflowy_editor/lib/src/editor/block_component/table_block_component/table_col.dart
+@@ -138,7 +138,7 @@
+         );
+         if (transaction.operations.isNotEmpty) {
+           transaction.afterSelection = transaction.beforeSelection;
+-          widget.editorState.apply(transaction);
++          widget.editorState.apply(transaction, options: const ApplyOptions(source: TransactionSource.none));
+         }
+       });
+ }

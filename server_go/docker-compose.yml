@@ -1,0 +1,19 @@
+version: "3"
+services:
+  server:
+    image: notee:1.0.0
+    user: "0:0"
+    ports:
+      - "7000:10001"
+    environment:
+      - NOTE_PORT=10001
+      - NOTE_DATA_DIR=/app/data
+      - NOTE_VERSION_DIR=/app/version
+      - NOTE_ADMIN_USER=admin
+      - NOTE_ADMIN_PASS=admin
+      - NOTE_MAX_DEVICES=5
+      - NOTE_MAX_FILE_SIZE=100
+    volumes:
+      - ./data:/app/data
+      - ./version:/app/version
+    restart: always
