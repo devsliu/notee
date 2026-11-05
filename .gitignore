@@ -1,0 +1,78 @@
+# =============== Flutter / Dart ===============
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.build/
+
+# Generated files
+*.dart.js
+*.info.json
+*.js
+*.js_
+*.js.deps
+*.js.map
+
+# Dart doc
+doc/api/
+
+# Flutter plugins metadata
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Flutter version metadata
+.macos/Flutter/Flutter.framework
+.pub-cache
+
+# =============== Android ===============
+android/app/build/
+android/app/keystore.jks
+android/keystore.jks
+*.jks
+*.keystore
+*.p12
+
+# =============== Go ===============
+__debug_bin*
+*.exe
+*.test
+*.out
+*.dll
+*.so
+*.dylib
+
+# server data dir
+server_go/app/
+server_go/data/
+
+# =============== IDE ===============
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# =============== OS ===============
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+System Volume Information/
+
+# =============== Misc ===============
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# config with secrets (keep config.example / config.ini.example)
+config.local.ini
+.env
+.env.local
+
+# release artifacts
+release/
+
+# local publish tool (contains server path, not for repo)

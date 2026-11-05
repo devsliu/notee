@@ -1,0 +1,52 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "./sign/huawei_hap_lhg.p12",
+          "storePassword": "0000001AB373B78FB9130BAF15E81FA10CA73780B3F53977867DCC66B0973431E425229E8AAF5C7C72BF",
+          "keyAlias": "huawei",
+          "keyPassword": "0000001A606F8FF74875C90663301E2E91E6A3D720B8394CECC5BFA4A7B45632CF114BD51E2EFD54D456",
+          "signAlg": "SHA256withECDSA",
+          "profile": "./sign/notee.p7b",
+          "certpath": "./sign/huawei_hap_lhg.cer"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS",
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "profile"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

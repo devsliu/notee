@@ -1,0 +1,3 @@
+[submodule "client_flutter/libs/appflowy_editor"]
+	path = client_flutter/libs/appflowy_editor
+	url = https://github.com/devsliu/appflowy-editor.git

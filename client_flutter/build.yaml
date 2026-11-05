@@ -1,0 +1,9 @@
+# build.yaml
+targets:
+  $default:
+    builders:
+      drift_dev:
+        options:
+          # 🌟 既然你用的是顶配的 Drift 2.33.0，直接开启现代 Manager 模式
+          generate_manager: true
+          store_date_time_values_as_text: true
