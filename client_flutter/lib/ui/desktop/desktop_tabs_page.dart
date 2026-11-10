@@ -177,6 +177,7 @@ class DesktopTabsPageState extends State<DesktopTabsPage> {
     final end = to.clamp(start, _tabs.length).toInt();
     for (int i = start; i < end; i++) {
       _tabs[i].tab.close();
+      _tabs[i].page = null; // Release the Widget so its State can be GC'd
     }
     _tabs.removeRange(start, end);
   }
@@ -266,8 +267,11 @@ class DesktopTabsPageState extends State<DesktopTabsPage> {
   }
 
   void _buildTabPage(_DesktopTabImpl impl) {
-    impl.page = impl.tab.buildPage(impl.key, (ctx) {
-      final idx = _tabs.indexWhere((t) => t.tab.equal(impl.tab));
+    // Capture `tab` instead of `impl` to avoid a reference cycle:
+    // impl → GlobalKey → State → Widget → closePageCallback → impl
+    final tab = impl.tab;
+    impl.page = tab.buildPage(impl.key, (ctx) {
+      final idx = _tabs.indexWhere((t) => t.tab.equal(tab));
       if (idx != -1) closeTab(idx);
     });
   }
