@@ -263,6 +263,11 @@ class DesktopTabsPageState extends State<DesktopTabsPage> {
         }
         _pageReadyNotifier.value = index;
       });
+    } else {
+      // No valid tab selected — clear the actions bar so ValueListenableBuilder
+      // rebuilds to SizedBox.shrink() and releases any captured State references
+      // (e.g. EditorTab's overflow button closure holding RecordFlowEditorPageState).
+      _pageReadyNotifier.value = -1;
     }
   }
 
