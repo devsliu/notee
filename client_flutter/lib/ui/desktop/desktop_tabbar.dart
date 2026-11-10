@@ -128,7 +128,7 @@ class _DesktopTabBarState extends State<DesktopTabBar> {
       scrollDirection: Axis.horizontal,
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        spacing: 0.8,
+        spacing: 0,
         mainAxisAlignment: MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: List.generate(widget.tabs.length, (i) {

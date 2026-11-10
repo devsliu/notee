@@ -287,7 +287,7 @@ class DesktopTabsPageState extends State<DesktopTabsPage> {
             bottom: 0,
             left: 0,
             right: 0,
-            child: Divider(height: 1, thickness: 1, color: theme.colorScheme.outline.withAlpha(80)),
+            child: Divider(height: 0.5, thickness: 0.5, color: theme.colorScheme.outline.withAlpha(50)),
           ),
           // 上层：从左到右布局。用 Row+Expanded 而非自定义 LinearLayout，
           // 因为 LinearLayout 的 Pass 1 用无界主轴测量会把
