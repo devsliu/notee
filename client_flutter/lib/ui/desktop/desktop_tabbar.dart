@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:notee/config/theme.dart';
 import 'package:notee/ui/common/popup_menu.dart';
 
 import '../../config/language_manager.dart';
@@ -236,13 +237,8 @@ class _TabItemState extends State<_TabItem> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final selected = widget.selected;
-    final baseColor = selected
-        ? theme.colorScheme.surface
-        : Color.lerp(theme.colorScheme.surface, theme.colorScheme.onSurfaceVariant, 0.15)!;
-
-    final hoverColor = selected
-        ? baseColor
-        : Color.lerp(baseColor, theme.colorScheme.primary, 0.10)!;
+    final baseColor = selected ? theme.colorScheme.surface : theme.appBarBackgroundColor;
+    final hoverColor = selected ? baseColor : Color.lerp(baseColor, theme.colorScheme.primary, 0.10)!;
 
     final textColor = selected
         ? theme.colorScheme.onSurface
