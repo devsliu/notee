@@ -18,7 +18,7 @@ subprojects {
 subprojects {
     plugins.withId("com.android.library") {
         val lib = extensions.getByType<com.android.build.api.dsl.LibraryExtension>()
-        lib.compileSdk = 36
+        lib.compileSdk = 37
         lib.compileOptions {
             sourceCompatibility = JavaVersion.VERSION_21
             targetCompatibility = JavaVersion.VERSION_21
@@ -26,7 +26,7 @@ subprojects {
     }
     plugins.withId("com.android.application") {
         val app = extensions.getByType<com.android.build.api.dsl.ApplicationExtension>()
-        app.compileSdk = 36
+        app.compileSdk = 37
         app.compileOptions {
             sourceCompatibility = JavaVersion.VERSION_21
             targetCompatibility = JavaVersion.VERSION_21

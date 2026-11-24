@@ -10,7 +10,7 @@ plugins {
 android {
     ndkVersion = "29.0.13846066"
     namespace = "com.lhg.notee"
-    compileSdk = 36
+    compileSdk = 37
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
