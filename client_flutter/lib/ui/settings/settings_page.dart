@@ -74,6 +74,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await showModalBottomSheet(
       context: context,
       useRootNavigator: false,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       builder: (ctx) => LoginUsersControl(
         savedList: savedList,

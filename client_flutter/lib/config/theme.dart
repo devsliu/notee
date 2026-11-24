@@ -17,9 +17,9 @@ import '../l10n/app_localizations.dart';
 // ---------------------------------------------------------------------------
 
 Color _blend(Color from, Color to, double ratio) {
-  final r = (from.r + ((to.r - from.r) * ratio)).round().clamp(0, 255);
-  final g = (from.g + ((to.g - from.g) * ratio)).round().clamp(0, 255);
-  final b = (from.b + ((to.b - from.b) * ratio)).round().clamp(0, 255);
+  final r = ((from.r + ((to.r - from.r) * ratio)) * 255).round().clamp(0, 255);
+  final g = ((from.g + ((to.g - from.g) * ratio)) * 255).round().clamp(0, 255);
+  final b = ((from.b + ((to.b - from.b) * ratio)) * 255).round().clamp(0, 255);
   return Color.fromRGBO(r, g, b, from.a);
 }
 
@@ -248,6 +248,12 @@ class ThemeSpec {
             borderRadius: BorderRadius.circular(2),
             side: BorderSide(color: out.withAlpha(80), width: 1),
           ),
+        ),
+        bottomSheetTheme: BottomSheetThemeData(
+          backgroundColor: csBase.surfaceContainerLow,
+          modalBackgroundColor: csBase.surfaceContainerLow,
+          surfaceTintColor: Colors.transparent,
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
         ),
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
