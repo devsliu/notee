@@ -23,6 +23,16 @@ class AppDatabase extends _$AppDatabase {
   Future<List<RecordEntry>> getAllRecords() async =>
       (await select(localRecords).get()).map((r) => RecordEntry(r)).toList();
 
+  /// Uuids of all non-deleted records. Lightweight (single column) — used by
+  /// backend-switch cleanup that only needs to enumerate on-disk files.
+  Future<List<String>> getUndeletedUuids() async {
+    final rows = await (selectOnly(localRecords)
+          ..addColumns([localRecords.uuid])
+          ..where(localRecords.editType.equals(LocalEditType.delete).not()))
+        .get();
+    return rows.map((r) => r.read(localRecords.uuid)!).whereType<String>().toList();
+  }
+
   /// PUSH: retrieve all locally edited entries (edit=1, non-delete)
   Future<List<RecordEntry>> getEditRecords() async => (await (select(
     localRecords,
@@ -406,6 +416,35 @@ class AppDatabase extends _$AppDatabase {
       fileVersion: 0,
       baseFileVersion: 0,
     );
+  }
+
+  // ========== Backend switch — bulk reset ==========
+
+  /// Clear all remote_* fields across every local record.
+  /// Called when switching sync backends (or going offline) so the new backend
+  /// does not inherit version numbers from the old one, forcing a full re-sync.
+  /// Also resets version/fileVersion to 0 so push treats local edits as new records.
+  Future<void> resetAllRemoteFields() async {
+    await update(localRecords).write(
+      const LocalRecordsCompanion(
+        remoteVersion: Value(0),
+        remoteJson: Value(''),
+        baseFileVersion: Value(0),
+        batchNo: Value(0),
+        version: Value(0),
+        fileVersion: Value(0),
+      ),
+    );
+  }
+
+  /// Reset all sync-type KV configs to "unsynced" state, WITHOUT deleting values.
+  /// Called on backend switch: configs like readOnlyFolders are local-first data
+  /// that must be preserved, but their synced-state belongs to the old backend.
+  /// Marking them unsynced forces the next sync to re-upload them to the new backend.
+  Future<int> resetAllSyncConfigsUnsynced() async {
+    return await (update(kVConfigs)
+          ..where((t) => t.type.equals(KVConfigs.typeSync)))
+        .write(const KVConfigsCompanion(state: Value(KVConfigs.stateUnsynced)));
   }
 
   /// One-click alignment after successful sync: local_* all = remote_*, editType=none.

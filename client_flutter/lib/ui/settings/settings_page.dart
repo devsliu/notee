@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:notee/filesync/http_api.dart';
 import 'package:notee/filesync/table_record.dart';
-import 'package:notee/filesync/user.dart';
+import 'package:notee/filesync/backends/http/http_sync_backend.dart';
+import 'package:notee/filesync/repository.dart';
 import 'package:notee/ui/settings/record_operates_page.dart';
 import 'package:notee/ui/common/app_bar.dart';
 import 'package:notee/ui/settings/server_api_stats_page.dart';
@@ -18,11 +18,10 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'login_dialog.dart';
+import 'change_password_dialog.dart';
 import 'upgrade_manager.dart';
-import 'login_users_control.dart';
 import '../../config/language_manager.dart';
 import '../../utils/utils.dart';
-import '../../filesync/repository.dart';
 import 'package:notee/ui/common/toast.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -48,41 +47,89 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     loadVersionInfo();
     _loadReadOnlyFolders();
-    UserManager.stateNotifier.addListener(_onAuthChanged);
+    HttpSyncBackend.loginStateNotifier.addListener(_refreshState);
+    Repository.get().syncConfigs.notifier.addListener(_refreshState);
   }
 
   @override
   void dispose() {
-    UserManager.stateNotifier.removeListener(_onAuthChanged);
+    HttpSyncBackend.loginStateNotifier.removeListener(_refreshState);
+    Repository.get().syncConfigs.notifier.removeListener(_refreshState);
     super.dispose();
   }
 
-  void _onAuthChanged() {
-    if (mounted) setState(() {});
+  void _refreshState() {
+    if (!mounted) return;
+    // 切后端后 syncConfigs 会重新 load，刷新只读文件夹等本地配置显示
+    _loadReadOnlyFolders();
+    setState(() {});
+  }
+
+  String _userSubtitle() {
+    final u = Repository.get().backend as HttpSyncBackend?;
+    if (u == null) return l10n.notLoggedIn;
+    final name = u.name.isNotEmpty ? u.name : u.id.toString();
+    final server = u.apiUrl.isEmpty ? l10n.needServer : u.apiUrl;
+    return '$name\n$server';
   }
 
   void _onUserTap() async {
-    final savedList = UserManager.getUsers();
     if (!mounted) return;
 
-    // Nothing to show: no users at all → login dialog
-    if (savedList.isEmpty) {
+    if (!HttpSyncBackend.loginStateNotifier.value) {
       LoginDialog.show(context);
       return;
     }
 
-    await showModalBottomSheet(
+    // 已登录 → 弹对话框：修改密码 / 登出
+    final backend = Repository.get().backend as HttpSyncBackend?;
+    final action = await showDialog<String>(
       context: context,
-      useRootNavigator: false,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-      builder: (ctx) => LoginUsersControl(
-        savedList: savedList,
-        onChanged: () {
-          if (mounted) setState(() {});
-        },
+      builder: (ctx) => SimpleDialog(
+        title: Text(backend?.name ?? ''),
+        children: [
+          ListTile(
+            leading: const Icon(Icons.lock_outline),
+            title: Text(l10n.changePassword),
+            onTap: () => Navigator.pop(ctx, 'password'),
+          ),
+          ListTile(
+            leading: Icon(Icons.logout, color: Theme.of(ctx).colorScheme.error),
+            title: Text(l10n.logout, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+            onTap: () => Navigator.pop(ctx, 'logout'),
+          ),
+        ],
       ),
     );
+
+    if (!mounted) return;
+
+    if (action == 'password') {
+      ChangePasswordDialog.show(context);
+    } else if (action == 'logout') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l10n.logout),
+          content: Text(l10n.confirmLogout),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.cancel)),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l10n.logout, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) {
+        // 登出不是独立操作：token 失效（清 token + 登录态 false）+ 变游客。
+        // 认证归 backend，同步目标归 Repository，两者互不感知。
+        final cur = Repository.get().backend;
+        if (cur is HttpSyncBackend) await cur.clearToken(wipePassword: true);
+        Repository.get().setBackend(null);
+        if (mounted) setState(() {});
+      }
+    }
   }
 
   void _onThemeTap() async {
@@ -253,13 +300,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   onTap: _onUserTap,
                   title: Text(l10n.syncAccount),
                   subtitle: Text(
-                    getUserInfo(context, UserManager.current),
+                    _userSubtitle(),
                     style: TextStyle(
-                      color: UserManager.current.isLoggedIn ? null : Theme.of(context).colorScheme.error,
+                      color: HttpSyncBackend.loginStateNotifier.value ? null : Theme.of(context).colorScheme.error,
                     ),
                   ),
                 ),
-                if (UserManager.current.isLoggedIn) ...[
+                if (HttpSyncBackend.loginStateNotifier.value) ...[
                   divider,
                 ],
                 ListTile(
@@ -316,17 +363,21 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildCard(
               context,
               children: [
-                ListTile(onTap: _onApiStatTap, title: Text(l10n.apiCallStats)),
+                ListTile(
+                  onTap: HttpSyncBackend.loginStateNotifier.value ? _onApiStatTap : null,
+                  title: Text(l10n.apiCallStats),
+                  enabled: HttpSyncBackend.loginStateNotifier.value,
+                ),
                 divider,
                 ListTile(onTap: _onRecordsDbTap, title: Text(l10n.database)),
                 divider,
                 ListTile(onTap: _onOperatesDbTap, title: Text(l10n.operates)),
                 divider,
                 ListTile(
-                  onTap: UserManager.current.isLoggedIn ? _onTombstoneTap : null,
+                  onTap: HttpSyncBackend.loginStateNotifier.value ? _onTombstoneTap : null,
                   title: Text(l10n.tombstoneManager),
                   subtitle: Text(l10n.tombstoneManagerDesc),
-                  enabled: UserManager.current.isLoggedIn,
+                  enabled: HttpSyncBackend.loginStateNotifier.value,
                 ),
               ],
             ),
@@ -398,8 +449,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _onTombstoneTap() async {
-    if (!UserManager.current.isLoggedIn) return;
-    final result = await HttpApi.getTombstoneStats();
+    if (!HttpSyncBackend.loginStateNotifier.value) return;
+    final result = await (Repository.get().backend as HttpSyncBackend).getTombstoneStats();
     if (!mounted) return;
     if (!result.isSuccess() || result.data == null) {
       Toast.show(context, l10n.syncErrServerDb);
@@ -455,7 +506,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (confirmed != true) return;
     if (!mounted) return;
     // Perform purge
-    final purgeResult = await HttpApi.purgeTombstones();
+    final purgeResult = await (Repository.get().backend as HttpSyncBackend).purgeTombstones();
     if (!mounted) return;
     if (purgeResult.isSuccess() && purgeResult.data != null) {
       Toast.show(context, l10n.tombstonePurgeDone(stats.tombstoneAssetCount, purgeResult.data!.purgedCount));

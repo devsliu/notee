@@ -154,11 +154,11 @@ class _RecordListPageState extends State<RecordListPage> {
     return ListenableBuilder(
       listenable: Listenable.merge([
         AppEnv.filesPanelModeNotifier,
-        Repository.get().userSwitchingNotifier,
+        Repository.get().backendSwitchingNotifier,
         Repository.get().recordTree.countNotifier,
       ]),
       builder: (context, _) {
-        if (Repository.get().userSwitchingNotifier.value) {
+        if (Repository.get().backendSwitchingNotifier.value) {
           return const Center(child: CircularProgressIndicator());
         }
         if (Repository.get().recordTree.countNotifier.value == 0) {

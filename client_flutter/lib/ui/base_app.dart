@@ -167,7 +167,7 @@ abstract class BaseAppState<T extends BaseApp> extends State<T>
     WidgetsBinding.instance.addObserver(this);
     ReminderNotifier.instance.notificationTapNotifier.addListener(_onNotificationTap);
     Repository.get().syncStateNotifier.addListener(_onSyncStateChanged);
-    Repository.get().userSwitchingNotifier.addListener(_onUserSwitchingChanged);
+    Repository.get().backendSwitchingNotifier.addListener(_onUserSwitchingChanged);
     if (Utils.isDesktop()) {
       windowManager.addListener(this);
     }
@@ -177,7 +177,7 @@ abstract class BaseAppState<T extends BaseApp> extends State<T>
   void dispose() {
     ReminderNotifier.instance.notificationTapNotifier.removeListener(_onNotificationTap);
     Repository.get().syncStateNotifier.removeListener(_onSyncStateChanged);
-    Repository.get().userSwitchingNotifier.removeListener(_onUserSwitchingChanged);
+    Repository.get().backendSwitchingNotifier.removeListener(_onUserSwitchingChanged);
     WidgetsBinding.instance.removeObserver(this);
     if (Utils.isDesktop()) {
       windowManager.removeListener(this);
@@ -238,7 +238,7 @@ abstract class BaseAppState<T extends BaseApp> extends State<T>
   /// 监听用户切换状态：切换开始弹出不可取消的 loading 模态框，
   /// 切换完成自动 pop，期间拦截所有用户操作。
   void _onUserSwitchingChanged() {
-    final switching = Repository.get().userSwitchingNotifier.value;
+    final switching = Repository.get().backendSwitchingNotifier.value;
     Timer.run(() {
       if (!mounted) return;
       final ctx = navigatorKey.currentContext;

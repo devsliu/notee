@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 
-import 'package:notee/filesync/http_api.dart';
+import 'package:notee/filesync/backends/sync_backend.dart';
 import 'package:notee/filesync/repository.dart';
-import 'package:notee/filesync/user.dart';
+import 'package:notee/filesync/backends/http/http_sync_backend.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/utils/utils.dart';
 import 'package:flutter/material.dart';
@@ -26,10 +26,10 @@ class LoginDialog extends StatefulWidget {
 
 class _LoginDialogState extends State<LoginDialog> {
   late final TextEditingController _apiUrlController = TextEditingController(
-    text: widget.initialUrl ?? UserManager.current.apiUrl ?? '',
+    text: widget.initialUrl ?? (Repository.get().backend as HttpSyncBackend?)?.apiUrl ?? '',
   );
   late final TextEditingController _usernameController = TextEditingController(
-    text: widget.initialName ?? UserManager.current.name ?? '',
+    text: widget.initialName ?? (Repository.get().backend as HttpSyncBackend?)?.name ?? '',
   );
   final TextEditingController _passwordController = TextEditingController();
   bool _loading = false;
@@ -65,29 +65,26 @@ class _LoginDialogState extends State<LoginDialog> {
       return;
     }
 
-    HttpApi.setBaseUrl(apiUrl);
-
     await Repository.get().waitForSync(); // Ensure sync service is ready
-    // UserManager.current.logout(); // Ensure logging out current user first
     var pass = _generateMd5Pass(userName, password);
-    ApiResult<LoginResult> result = await HttpApi.login(userName, pass);
-    if (result.isSuccess()) {
-      await UserManager.setLogin(
-        result.data!.userId,
-        _usernameController.text,
-        result.data!.token,
-        pass, // Store md5 password in secure storage for auto relogin
-        apiUrl,
+    final result = await HttpApi.login(apiUrl, userName, pass);
+    if (result.isSuccess() && result.data != null) {
+      final backend = HttpSyncBackend(
+        id: result.data!.userId,
+        name: userName,
+        token: result.data!.token,
+        password: pass.isNotEmpty ? pass : null,
+        apiUrl: apiUrl,
       );
-      Repository.get().syncRecords(true);
+      Repository.get().setBackend(backend);
       if (mounted) {
-        Navigator.of(context).pop(true); // Login succeeded
+        Navigator.of(context).pop(true);
       }
     } else {
       // Dialog may have been closed by back key during request, cannot call setState on unmounted state
       if (!mounted) return;
       setState(() {
-        _error = result.code == HttpApi.kResultErrorUserPasswordError
+        _error = result.code == SyncBackend.codeUserPasswordError
             ? l10n.loginInvalidCredentials
             : result.message;
         _loading = false;

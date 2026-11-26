@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import 'backends/sync_backend.dart';
 import 'database.dart';
-import 'http_api.dart';
 import 'sync_exception.dart';
 import 'table_record.dart';
 import '../utils/app_logger.dart';
@@ -23,6 +23,7 @@ import '../utils/app_logger.dart';
 ///                      after the server confirms (handled by SyncEngine).
 class SyncConfigs {
   AppDatabase? _db;
+  SyncBackend? _backend;
 
   /// In-memory cache of all sync-type configs (key => value).
   final Map<String, String> _cache = {};
@@ -34,8 +35,10 @@ class SyncConfigs {
   /// Whether this instance is bound to an open DB.
   bool get isBound => _db != null;
 
-  /// (Re)load the cache from the DB. Called on open and after a successful
-  /// config download (so the cache reflects server-side changes).
+  /// Load the cache from the DB. Called once on [Repository] open, and again
+  /// after a successful config download (so the cache reflects server-side
+  /// changes). The DB lives for the whole [Repository] lifetime, so backend
+  /// switches never require a reload — use [setBackend] for that.
   Future<void> load(AppDatabase db) async {
     _db = db;
     _cache
@@ -44,11 +47,12 @@ class SyncConfigs {
     notifier.value++;
   }
 
-  /// Drop the DB reference and clear the cache. Called on close.
-  void dispose() {
-    _db = null;
-    _cache.clear();
-    notifier.value++;
+  /// Switch the transport used by [_doSync] without touching the DB or cache.
+  /// Config rows are local-first and survive backend switches (only their
+  /// sync-state flags are reset), so a full dispose/reload would just re-read
+  /// identical rows and needlessly tick [notifier]. Pass null for guest mode.
+  void setBackend(SyncBackend? backend) {
+    _backend = backend;
   }
 
   static const Duration _configSyncInterval = Duration(hours: 12);
@@ -76,12 +80,15 @@ class SyncConfigs {
   }
 
   Future<void> _doSync(AppDatabase db) async {
+    final backend = _backend;
+    if (backend == null) return; // 未配置同步后端 → 跳过
+
     try {
       // 1. Upload: all sync-type configs with state == unsynced
       final unsynced = await db.getUnsyncedSyncConfigs();
       if (unsynced.isNotEmpty) {
         final uploadPayload = unsynced.map((k, v) => MapEntry(k, v as String?));
-        final result = await HttpApi.uploadConfigs(uploadPayload);
+        final result = await backend.uploadConfigs(uploadPayload);
         if (!result.isSuccess()) {
           throw SyncException(result.message, null, result.code);
         }
@@ -92,7 +99,7 @@ class SyncConfigs {
       }
 
       // 2. Download: all server configs, merge into local
-      final download = await HttpApi.downloadConfigs();
+      final download = await backend.downloadConfigs();
       if (!download.isSuccess()) {
         throw SyncException(download.message, null, download.code);
       }

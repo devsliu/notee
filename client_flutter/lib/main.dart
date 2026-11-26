@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:notee/config/app_env.dart';
 import 'package:notee/config/language_manager.dart';
+import 'package:notee/filesync/backends/backend_manager.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/model/record_opened_state.dart';
 import 'package:notee/utils/app_logger.dart';
@@ -35,6 +36,10 @@ Future<void> main() async {
 
   await AppEnv.init();
   LanguageManager.init();
+
+  // 绑定 appRootDir 并注册 backend 工厂（须在 Repository.init 之前）
+  BackendManager.init(AppEnv.appRootDir);
+
   await Repository.init(AppEnv.appRootDir);
   Repository.get().recordTree.setSortListType(AppEnv.listPageValue.sortType);
   RecordOpenedState.get().setOpenedFolder("/");

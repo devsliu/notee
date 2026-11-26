@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:notee/filesync/database.dart';
-import 'package:notee/filesync/http_api.dart';
+import 'package:notee/filesync/backends/sync_backend.dart';
 import 'package:notee/filesync/record_ext.dart' show isRemoteUrl, extractAssetFilename;
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/utils/dedup_task_queue.dart';
@@ -99,6 +99,7 @@ class FileStore {
   final DedupTaskQueue<bool> _downloadQueue = DedupTaskQueue<bool>(concurrency: 4, disposeValue: false);
   final http.Client _httpClient = http.Client();
   AppDatabase? db;
+  SyncBackend? backend;
   bool _closed = false;
 
   final _controller = StreamController<ContentFileEvent>.broadcast();
@@ -292,6 +293,28 @@ class FileStore {
     }
   }
 
+  /// On backend switch: every base file is a stale baseline from the OLD backend.
+  /// After db.resetAllRemoteFields() cleared baseFileVersion, the on-disk base file
+  /// no longer corresponds to any valid server state. Handle each record:
+  ///   - work absent  → promote base → work (becomes a local edit to push to new backend)
+  ///   - work present → delete base (work is the local edit, base is stale)
+  /// No-op for records with neither file.
+  void resetAllBaseFiles(Iterable<String> uuids) {
+    for (final uuid in uuids) {
+      moveBaseFileToWorkIfWorkFileNotExist(uuid);
+      deleteBaseFile(uuid);
+    }
+  }
+
+  /// On backend switch: clear every asset "uploaded" marker (`assets/{uuid}/*.1`)
+  /// so assets get re-uploaded to the NEW backend. The original asset files are
+  /// kept; only the markers (which mean "already on the old server") are removed.
+  void resetAllAssetMarkers(Iterable<String> uuids) {
+    for (final uuid in uuids) {
+      pruneAssetMarkers(uuid, const {});
+    }
+  }
+
   /// Promote work file to base file after successful upload (prefer rename on same disk,
   /// fall back to copy+delete across disks).
   /// On Windows, rename does not overwrite existing files, so use "backup old base → replace → cleanup backup"
@@ -395,11 +418,13 @@ class FileStore {
       }
 
       if (_closed) return false;
-      final result = await HttpApi.downloadFile(uuid, getBaseFile(uuid));
+      final backend = this.backend;
+      if (backend == null) return false;
+      final result = await backend.downloadFile(uuid, getBaseFile(uuid));
 
       if (!result.isSuccess() || result.data == null) {
         AppLogger.e('FileStore', "download uuid=$uuid download failed ${result.message}");
-        if (result.code == HttpApi.kResultErrorFileNotFound) {
+        if (result.code == SyncBackend.codeFileNotFound) {
           await db?.updateRecord(uuid, fileEditAt: 0);
         }
         return false;
@@ -447,7 +472,7 @@ class FileStore {
     final filename = extractAssetFilename(src);
     if (filename != null) {
       final localPath = getAssetPath(recordUuid, filename);
-      final downloadUrl = '${HttpApi.baseUrl}/asset/$recordUuid/${Uri.encodeComponent(filename)}';
+      final downloadUrl = backend?.buildAssetUrl(recordUuid, filename) ?? '';
       return RecordAsset(
         src: localPath,
         recordUuid: recordUuid,
@@ -483,7 +508,7 @@ class FileStore {
       }
       try {
         final request = http.Request('GET', Uri.parse(url));
-        if (asset.needsAuth) await HttpApi.setTokenToRequest(request);
+        if (asset.needsAuth) await backend?.setAuthToRequest(request);
         final response = await _httpClient.send(request).timeout(const Duration(seconds: 120));
         if (response.statusCode != 200) {
           await response.stream.drain();

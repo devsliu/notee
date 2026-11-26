@@ -1,9 +1,10 @@
+import 'package:notee/filesync/repository.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:notee/config/language_manager.dart';
-import 'package:notee/filesync/http_api.dart';
+import 'package:notee/filesync/backends/http/http_sync_backend.dart';
 import 'package:notee/utils/utils.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -71,6 +72,11 @@ class _ShareRecordDialogState extends State<ShareRecordDialog> {
       Toast.show(context, l10n.shareInvalidExpire);
       return;
     }
+    final backend = Repository.get().backend as HttpSyncBackend?;
+    if (backend == null) {
+      Toast.show(context, l10n.notLoggedIn);
+      return;
+    }
     setState(() => _sharing = true);
     String? error;
     String? url;
@@ -78,7 +84,7 @@ class _ShareRecordDialogState extends State<ShareRecordDialog> {
     final tmp = File('${(await getTemporaryDirectory()).path}/share_${widget.uuid}.md');
     try {
       await tmp.writeAsString(widget.markdown);
-      final result = await HttpApi.shareUpload(widget.uuid, widget.title, tmp.path, life);
+      final result = await backend.shareUpload(widget.uuid, widget.title, tmp.path, life);
       if (result.isSuccess() && result.data != null) {
         url = result.data;
       } else {

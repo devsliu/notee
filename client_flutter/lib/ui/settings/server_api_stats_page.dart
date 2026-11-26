@@ -1,6 +1,7 @@
-import 'package:notee/filesync/http_api.dart';
+import 'package:notee/filesync/repository.dart';
 import 'package:notee/ui/common/app_bar.dart';
 import 'package:notee/config/language_manager.dart';
+import 'package:notee/filesync/backends/http/http_sync_backend.dart';
 import 'package:notee/utils/utils.dart';
 import 'package:flutter/material.dart';
 import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
@@ -34,7 +35,11 @@ class _ServerApiStatsPageState extends State<ServerApiStatsPage> {
   }
 
   Future<List<APIStat>> _loadStats() async {
-    final result = await HttpApi.fetchAPIStats();
+    final backend = Repository.get().backend as HttpSyncBackend?;
+    if (backend == null) {
+      throw Exception(l10n.notLoggedIn);
+    }
+    final result = await backend.fetchAPIStats();
     if (result.isSuccess() && result.data != null) {
       return result.data!;
     } else {

@@ -1,3 +1,4 @@
+import 'package:notee/filesync/repository.dart';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -6,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:notee/config/app_env.dart';
 import 'package:notee/config/language_manager.dart';
-import 'package:notee/filesync/http_api.dart';
+import 'package:notee/filesync/backends/http/http_sync_backend.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -36,10 +37,10 @@ class UpgradeManager {
   /// 检查升级, 返回 VersionInfo (可能为 null)
   static Future<VersionInfo?> checkUpgrade() async {
     final platform = detectPlatform();
-    final baseUrl = HttpApi.baseUrl;
+    final baseUrl = (Repository.get().backend as HttpSyncBackend?)?.apiUrl ?? '';
     if (baseUrl.isEmpty) return null;
 
-    final result = await HttpApi.checkUpgrade(platform);
+    final result = await HttpSyncBackend.checkUpgrade(platform, apiUrl: baseUrl);
     if (result.isSuccess() && result.data != null) {
       return result.data!;
     }
@@ -53,7 +54,7 @@ class UpgradeManager {
     required VersionInfo? versionInfo,
   }) async {
     final platform = detectPlatform();
-    final baseUrl = HttpApi.baseUrl;
+    final baseUrl = (Repository.get().backend as HttpSyncBackend?)?.apiUrl ?? '';
     final isIOS = platform == 'ios';
 
     if (versionInfo == null) {

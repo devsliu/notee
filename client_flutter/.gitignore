@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# 运行时本地状态/凭据（含 token、保存的密码等，禁止入库）
+/user_store.json
+/backend_store.json

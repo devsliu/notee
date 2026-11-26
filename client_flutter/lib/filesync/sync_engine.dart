@@ -9,13 +9,13 @@ import 'package:drift/drift.dart';
 import 'package:notee/filesync/database.dart';
 import 'package:notee/filesync/record_tree.dart';
 import 'package:notee/filesync/file_store.dart';
-import 'package:notee/filesync/http_api.dart';
 import 'package:notee/filesync/record_ext.dart';
+import 'package:notee/filesync/backends/sync_backend.dart';
+import 'package:notee/filesync/backends/types.dart';
 import 'package:notee/filesync/remote_record.dart';
 import 'package:notee/filesync/table_record.dart';
 import 'package:notee/utils/app_logger.dart';
 import 'package:notee/filesync/sync_exception.dart';
-import 'package:notee/filesync/user.dart';
 import 'package:notee/utils/serial_task_queue.dart';
 class SyncState {
   static const int idle = 0;
@@ -28,8 +28,8 @@ class SyncState {
 
   SyncState({required this.state, this.message = "", this.errorCode = SyncException.unknown});
   bool get isError => state == error;
-  bool get isConflict => state == error && errorCode == HttpApi.kResultErrorRecordConflict;
-  bool get isAuthError => state == error && (errorCode == 401 || errorCode == HttpApi.kResultErrorUserPasswordError);
+  bool get isConflict => state == error && errorCode == SyncBackend.codeRecordConflict;
+  bool get isAuthError => state == error && errorCode == SyncBackend.codeAuthError;
 }
 
 class SyncEngine {
@@ -37,6 +37,7 @@ class SyncEngine {
 
   final AppDatabase db;
   final FileStore fileStore;
+  final SyncBackend backend;
   RecordTree? recordTree;
   final ValueNotifier<SyncState> syncStateNotifier;
 
@@ -47,7 +48,13 @@ class SyncEngine {
 
   DateTime? get lastSuccessfulPullTime => _lastSuccessfulPullTime;
 
-  SyncEngine({required this.db, required this.fileStore, required this.recordTree, required this.syncStateNotifier});
+  SyncEngine({
+    required this.db,
+    required this.fileStore,
+    required this.backend,
+    required this.recordTree,
+    required this.syncStateNotifier,
+  });
 
   Future<void> close() async {
     recordTree = null;
@@ -72,10 +79,6 @@ class SyncEngine {
   Future<void> sync(bool forcePull) async {
     if (_syncQueue.isDisposed) {
       AppLogger.i('SyncEngine', "sync skipped — engine closed");
-      return;
-    }
-    if (!UserManager.current.isLoggedIn) {
-      AppLogger.i('SyncEngine', "sync skipped — user not logged in");
       return;
     }
 
@@ -117,7 +120,7 @@ class SyncEngine {
           syncStateNotifier.value = SyncState(
             state: SyncState.error,
             message: "Note conflict",
-            errorCode: HttpApi.kResultErrorRecordConflict,
+            errorCode: SyncBackend.codeRecordConflict,
           );
           return;
         }
@@ -304,11 +307,11 @@ class SyncEngine {
         AppLogger.w('SyncEngine', "pullRecords aborted — engine closed");
         break;
       }
-      var fetchRecords = await HttpApi.fetchRecords(lastVersion, fetchLimit, fullSync: isInFullPull);
+      var fetchRecords = await backend.fetchRecords(lastVersion, fetchLimit, fullSync: isInFullPull);
       if (!fetchRecords.isSuccess()) {
         // 服务端 537: 客户端 version 低于 purgedVersion, 墓碑已被物理删除,
         // 必须重置 lastVersion=0 走全量同步, 否则会出现幽灵记录
-        if (fetchRecords.code == HttpApi.kResultErrorNeedFullSync) {
+        if (fetchRecords.code == SyncBackend.codeNeedFullSync) {
           AppLogger.w('SyncEngine', "server require full pull (537)");
           isInFullPull = true;
           lastVersion = 0;
@@ -451,13 +454,13 @@ class SyncEngine {
       if (fileStore.hasAssetMarker(uuid, name)) continue;
       // HTTP HEAD first — if the server already has this asset, skip PUT.
       try {
-        if (await HttpApi.headAsset(uuid, name)) {
+        if (await backend.headAsset(uuid, name)) {
           fileStore.markAssetUploaded(uuid, name);
           continue;
         }
       } catch (_) {} // offline / retry exhausted → fall through to PUT
       try {
-        final result = await HttpApi.uploadAsset(uuid, name, localPath);
+        final result = await backend.uploadAsset(uuid, name, localPath);
         if (result.isSuccess()) {
           fileStore.markAssetUploaded(uuid, name);
         } else {
@@ -478,7 +481,7 @@ class SyncEngine {
     if (deleteEntries.isNotEmpty) {
       if (_syncQueue.isDisposed) return;
       final items = deleteEntries.map((e) => (uuid: e.local.uuid, version: e.local.remoteVersion)).toList();
-      final deleteResp = await HttpApi.deleteRecords(items);
+      final deleteResp = await backend.deleteRecords(items);
       if (!deleteResp.isSuccess()) {
         throw SyncException(deleteResp.message, null, deleteResp.code);
       }
@@ -492,7 +495,7 @@ class SyncEngine {
           errors.add("missing delete result for ${entry.local.uuid}");
           continue;
         }
-        if (result.isSuccess() || result.code == HttpApi.kResultErrorRecordNotFound) {
+        if (result.isSuccess() || result.code == SyncBackend.codeRecordNotFound) {
           await db.deleteRecord(entry.local.uuid);
           await recordTree?.deleteRecord(entry.local.uuid);
           fileStore.deleteBaseFile(entry.local.uuid);
@@ -503,7 +506,7 @@ class SyncEngine {
           logs.add(
             "delete record ${entry.local.uuid} ${entry.local.path}${entry.local.name} version:${entry.local.remoteVersion}",
           );
-        } else if (result.code == HttpApi.kResultErrorRecordConflict) {
+        } else if (result.code == SyncBackend.codeRecordConflict) {
           conflicts++;
           try {
             fileStore.moveRecyclerFileToWork(entry.local.uuid);
@@ -536,7 +539,7 @@ class SyncEngine {
     if (noFileEdits.isNotEmpty) {
       if (_syncQueue.isDisposed) return;
       final items = noFileEdits.map(_buildUpsertItem).toList();
-      final batchResp = await HttpApi.upsertRecords(items);
+      final batchResp = await backend.upsertRecords(items);
       if (!batchResp.isSuccess()) {
         throw SyncException(batchResp.message, null, batchResp.code);
       }
@@ -554,7 +557,7 @@ class SyncEngine {
           final (pushed, logMsg) = await _applyEditSuccess(entry, result.data!, false);
           if (pushed) pushedEdits++;
           if (logMsg != null) logs.add(logMsg);
-        } else if (result.code == HttpApi.kResultErrorRecordConflict) {
+        } else if (result.code == SyncBackend.codeRecordConflict) {
           conflicts++;
           await _applyEditConflict(entry, result.data!);
         } else {
@@ -584,7 +587,7 @@ class SyncEngine {
       }
 
       final item = _buildUpsertItem(entry);
-      final result = await HttpApi.upsertRecord(
+      final result = await backend.upsertRecord(
         item,
         filePath: fileExist ? file.absolute.path : null,
         fileEditAt: fileExist ? entry.local.fileEditAt : null,
@@ -594,7 +597,7 @@ class SyncEngine {
         final (pushed, logMsg) = await _applyEditSuccess(entry, result.data!, fileExist);
         if (pushed) pushedEdits++;
         if (logMsg != null) AppLogger.i('SyncEngine', logMsg);
-      } else if (result.code == HttpApi.kResultErrorRecordConflict) {
+      } else if (result.code == SyncBackend.codeRecordConflict) {
         conflicts++;
         await _applyEditConflict(entry, result.data!);
       } else {

@@ -1,5 +1,6 @@
-import 'package:notee/filesync/http_api.dart';
-import 'package:notee/filesync/user.dart';
+import 'package:notee/filesync/backends/sync_backend.dart';
+import 'package:notee/filesync/backends/http/http_sync_backend.dart';
+import 'package:notee/filesync/repository.dart';
 import 'package:notee/config/language_manager.dart';
 import 'package:notee/utils/utils.dart';
 import 'package:flutter/material.dart';
@@ -43,23 +44,33 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       _error = null;
     });
 
-    final name = UserManager.current.name ?? '';
+    final backend = Repository.get().backend as HttpSyncBackend?;
+    if (backend == null) {
+      setState(() {
+        _loading = false;
+        _error = l10n.notLoggedIn;
+      });
+      return;
+    }
+    final name = backend.name;
     final oldHash = Utils.generateMd5('${name}_$oldPwd').toUpperCase();
     final newHash = Utils.generateMd5('${name}_$newPwd').toUpperCase();
 
-    final result = await HttpApi.changePassword(oldHash, newHash);
+    final result = await backend.changePassword(oldHash, newHash);
     if (!mounted) return;
 
     if (result.isSuccess()) {
-      // 密码已改, 清除本地 token, 让用户重新登录
-      await UserManager.current.logout();
+      // 密码已改：token 失效（清 token + 登录态 false）+ 变游客，让用户重新登录。
+      // 登出不是独立操作，只是这两个动作的组合；wipePassword 防崩溃中间态被 autoRelogin 复活。
+      await backend.clearToken(wipePassword: true);
+      Repository.get().setBackend(null);
       if (!mounted) return;
       Navigator.of(context).pop();
       Toast.show(context, l10n.passwordChanged);
     } else {
       setState(() {
         _loading = false;
-        if (result.code == HttpApi.kResultErrorUserPasswordError) {
+        if (result.code == SyncBackend.codeUserPasswordError) {
           _error = l10n.loginInvalidCredentials;
         } else {
           _error = result.message;
@@ -79,7 +90,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('${l10n.changePassword} - ${UserManager.current.name ?? ''}'),
+      title: Text('${l10n.changePassword} - ${(Repository.get().backend as HttpSyncBackend).name}'),
       content: SizedBox(
         width: 320,
         child: Column(

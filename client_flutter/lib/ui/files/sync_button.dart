@@ -1,10 +1,10 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:notee/filesync/backends/sync_backend.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/filesync/sync_engine.dart';
-import 'package:notee/filesync/user.dart';
-import 'package:notee/filesync/http_api.dart';
+import 'package:notee/filesync/backends/http/http_sync_backend.dart';
 
 import '../../config/app_env.dart';
 import '../settings/login_dialog.dart';
@@ -49,13 +49,13 @@ class _SyncButtonState extends State<SyncButton> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ValueListenableBuilder<UserLoginState>(
-      valueListenable: UserManager.stateNotifier,
-      builder: (context, loginState, _) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: HttpSyncBackend.loginStateNotifier,
+      builder: (context, isLoggedIn, _) {
         return ValueListenableBuilder<SyncState>(
           valueListenable: Repository.get().syncStateNotifier,
           builder: (context, state, _) {
-            bool isError = state.isError || !loginState.isLogin;
+            bool isError = state.isError || !isLoggedIn;
             bool isSyncing = state.state == SyncState.syncing;
             // Control animation
             if (isSyncing && !_controller.isAnimating) {
@@ -86,7 +86,7 @@ class _SyncButtonState extends State<SyncButton> with SingleTickerProviderStateM
   void _onSyncPressed() async {
     if (await _onErrorClick(context, Repository.get().syncStateNotifier.value)) return;
     if (!mounted) return;
-    if (!UserManager.stateNotifier.value.isLogin) {
+    if (!HttpSyncBackend.loginStateNotifier.value) {
       final result = await LoginDialog.show(context);
       if (result != true) return; // Login failed or cancelled
     }
@@ -100,17 +100,17 @@ class SyncStateWidget extends StatelessWidget {
 
   static final Map<int, String Function(AppLocalizations)> _errorMap = {
     401: (l) => l.syncErrAuthInvalid,
-    HttpApi.kResultErrorRecordConflict: (l) => l.syncErrConflict,
-    HttpApi.kResultErrorDatabase: (l) => l.syncErrServerDb,
-    HttpApi.kResultErrorRecordNotFound: (l) => l.syncErrRecordNotFound,
-    HttpApi.kResultErrorParams: (l) => l.syncErrParams,
-    HttpApi.kResultErrorRecordSave: (l) => l.syncErrRecordSave,
-    HttpApi.kResultErrorFileNotFound: (l) => l.syncErrRecordNotFound,
-    HttpApi.kResultErrorUserPasswordError: (l) => l.syncErrAuthInvalid,
-    HttpApi.kClientErrorNetwork: (l) => l.syncErrNetwork,
-    HttpApi.kClientErrorTimeout: (l) => l.syncErrTimeout,
-    HttpApi.kClientErrorNoBaseUrl: (l) => l.syncErrUnknown,
-    HttpApi.kClientErrorDownloadFailed: (l) => l.syncErrRecordSave,
+    SyncBackend.codeRecordConflict: (l) => l.syncErrConflict,
+    SyncBackend.codeDatabase: (l) => l.syncErrServerDb,
+    SyncBackend.codeRecordNotFound: (l) => l.syncErrRecordNotFound,
+    SyncBackend.codeParams: (l) => l.syncErrParams,
+    SyncBackend.codeRecordSave: (l) => l.syncErrRecordSave,
+    SyncBackend.codeFileNotFound: (l) => l.syncErrRecordNotFound,
+    SyncBackend.codeUserPasswordError: (l) => l.syncErrAuthInvalid,
+    SyncBackend.clientErrorNetwork: (l) => l.syncErrNetwork,
+    SyncBackend.clientErrorTimeout: (l) => l.syncErrTimeout,
+    SyncBackend.clientErrorNoBaseUrl: (l) => l.syncErrUnknown,
+    SyncBackend.clientErrorDownloadFailed: (l) => l.syncErrRecordSave,
   };
 
   String _syncErrorText(SyncState state) {
