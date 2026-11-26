@@ -67,28 +67,42 @@ class _LoginDialogState extends State<LoginDialog> {
 
     await Repository.get().waitForSync(); // Ensure sync service is ready
     var pass = _generateMd5Pass(userName, password);
-    final result = await HttpApi.login(apiUrl, userName, pass);
-    if (result.isSuccess() && result.data != null) {
-      final backend = HttpSyncBackend(
-        id: result.data!.userId,
-        name: userName,
-        token: result.data!.token,
-        password: pass.isNotEmpty ? pass : null,
-        apiUrl: apiUrl,
-      );
-      Repository.get().setBackend(backend);
-      if (mounted) {
-        Navigator.of(context).pop(true);
+    // 先构造空 token 实例承载 HttpApi 连接池，再调实例方法 .login()。
+    // 成功时同一对象被更新 token/id，直接交给 Repository.setBackend 接管（不再手动 close）；
+    // 失败/抛异常时 finally 里释放临时连接池。
+    final backend = HttpSyncBackend(
+      id: 0,
+      name: userName,
+      token: '',
+      password: pass,
+      apiUrl: apiUrl,
+    );
+    bool handedToRepo = false;
+    try {
+      final result = await backend.login(userName, pass);
+      if (result.isSuccess() && result.data != null) {
+        Repository.get().setBackend(result.data!);
+        handedToRepo = true;
+        if (mounted) {
+          Navigator.of(context).pop(true);
+        }
+      } else {
+        if (!mounted) return;
+        setState(() {
+          _error = result.code == SyncBackend.codeUserPasswordError
+              ? l10n.loginInvalidCredentials
+              : result.message;
+          _loading = false;
+        });
       }
-    } else {
-      // Dialog may have been closed by back key during request, cannot call setState on unmounted state
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = result.code == SyncBackend.codeUserPasswordError
-            ? l10n.loginInvalidCredentials
-            : result.message;
+        _error = e.toString();
         _loading = false;
       });
+    } finally {
+      if (!handedToRepo) backend.api.close();
     }
   }
 

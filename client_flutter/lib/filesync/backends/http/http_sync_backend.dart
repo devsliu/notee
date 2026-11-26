@@ -5,14 +5,14 @@ import 'package:notee/filesync/backends/sync_backend.dart';
 import 'package:notee/filesync/remote_record.dart';
 
 import 'http_api.dart';
-// re-export 数据类（UI 层需要这些类型但不应该直接 import http_api.dart）
-export 'http_api.dart' show LoginResult, VersionInfo, APIStat, TombstoneStats, TombstonePurgeResult, HttpApi;
+// re-export UI 层需要的数据类型（UI 不直接 import http_api.dart，也不接触 HttpApi/LoginResult）
+export 'http_api.dart' show VersionInfo, APIStat, TombstoneStats, TombstonePurgeResult;
 
 // =============================================================================
 // HttpSyncBackend —— 持有 HttpApi 实例，HttpApi 直接回调本类的 autoRelogin/clearToken
 //
 // 完全不依赖 Repository，不关心本地目录。
-// login 由 UI 层负责（UI 层调 HttpApi.login → 构造 backend → Repository.setBackend）。
+// 登录入口是静态工厂 [login]（UI 层调用，成功直接返回可交给 Repository.setBackend 的实例）。
 // 内部持久化调 BackendManager.save（autoRelogin/clearToken 时用）。
 // =============================================================================
 
@@ -28,7 +28,7 @@ class HttpSyncBackend extends SyncBackend {
   // 实例字段
   // =========================================================================
 
-  final int id;
+  int id;
 
   @override
   String name;
@@ -46,6 +46,11 @@ class HttpSyncBackend extends SyncBackend {
 
   // =========================================================================
   // 构造 / 序列化
+  //
+  // 典型用法：
+  //   1) 登录：HttpSyncBackend(id:0, name:'', token:'', password: pwd, apiUrl: url)
+  //      .login(name, pwd) → 成功后 id/token/name 被更新，对象直接交给 Repository
+  //   2) 恢复：fromMap() 构造即带 token，构造函数里自动置 loginStateNotifier = true
   // =========================================================================
 
   HttpSyncBackend({
@@ -77,6 +82,31 @@ class HttpSyncBackend extends SyncBackend {
         if (password != null && password!.isNotEmpty) 'password': password,
         'apiUrl': apiUrl,
       };
+
+  // =========================================================================
+  // 登录（实例方法）—— 与 autoRelogin 语义一致，都走 api.login 拿 token。
+  //
+  // 调用方先构造一个空 token 的实例（id:0, token:''）承载连接池，再调本方法。
+  // 成功：更新 this.id / this.token / this.name，置 loginStateNotifier = true，
+  //       返回 ApiResult.success(this) —— 调用方直接把同一对象交给 Repository.setBackend。
+  // 失败：返回带错误码的 ApiResult，实例保持空 token 状态，loginStateNotifier 不变。
+  //
+  // （连接池随实例生命周期管理，不再需要静态工厂那套临时+正式两次构造）
+  // =========================================================================
+
+  Future<ApiResult<HttpSyncBackend>> login(String userName, String pwd) async {
+    final result = await api.login(userName, pwd);
+    if (!result.isSuccess() || result.data == null) {
+      return ApiResult(result.code, result.message, null, rawData: result.rawData);
+    }
+    final data = result.data!;
+    id = data.userId;
+    token = data.token;
+    name = userName;
+    password = pwd.isNotEmpty ? pwd : null;
+    loginStateNotifier.value = true;
+    return ApiResult.success(this, rawData: result.rawData);
+  }
 
   // =========================================================================
   // SyncBackend 抽象接口
@@ -132,7 +162,7 @@ class HttpSyncBackend extends SyncBackend {
     final pwd = password;
     if (pwd == null || pwd.isEmpty || apiUrl.isEmpty || name.isEmpty) return false;
     try {
-      final result = await HttpApi.login(apiUrl, name, pwd);
+      final result = await api.login(name, pwd);
       if (result.code == 200 && result.data != null) {
         token = result.data!.token;
         // 落盘新 token，避免重启后旧 token 复活 → 反复 401
@@ -178,8 +208,12 @@ class HttpSyncBackend extends SyncBackend {
 
   Future<ApiResult<TombstonePurgeResult>> purgeTombstones() => api.purgeTombstones();
 
-  /// GET /upgrade/check —— 升级检查（公开接口，不需要 token）
-  static Future<ApiResult<VersionInfo>> checkUpgrade(String platform, {required String apiUrl}) async {
-    return HttpApi.checkUpgrade(apiUrl, platform);
+  /// GET /upgrade/check —— 升级检查（公开接口，不需要 token）。
+  /// 仅 HTTP backend 有效：游客（backend==null）没有 apiUrl，UI 不暴露入口。
+  Future<ApiResult<VersionInfo>> checkUpgrade(String platform) => api.checkUpgrade(platform);
+
+  @override
+  Future<void> close() async {
+    api.close();
   }
 }

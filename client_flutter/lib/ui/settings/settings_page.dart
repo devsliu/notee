@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:notee/filesync/table_record.dart';
@@ -6,10 +5,9 @@ import 'package:notee/filesync/backends/http/http_sync_backend.dart';
 import 'package:notee/filesync/repository.dart';
 import 'package:notee/ui/settings/record_operates_page.dart';
 import 'package:notee/ui/common/app_bar.dart';
-import 'package:notee/ui/settings/server_api_stats_page.dart';
-import 'package:notee/ui/settings/linear_layout_test_page.dart';
 import 'package:notee/ui/settings/record_database_page.dart';
 import 'package:notee/ui/settings/read_only_folders_page.dart';
+import 'package:notee/ui/settings/sync_server_page.dart';
 import 'package:flutter/material.dart';
 import 'package:notee/config/theme.dart';
 import 'package:notee/ui/settings/theme_selector_dialog.dart';
@@ -17,9 +15,6 @@ import 'package:notee/config/app_env.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import 'login_dialog.dart';
-import 'change_password_dialog.dart';
-import 'upgrade_manager.dart';
 import '../../config/language_manager.dart';
 import '../../utils/utils.dart';
 import 'package:notee/ui/common/toast.dart';
@@ -36,11 +31,6 @@ class _SettingsPageState extends State<SettingsPage> {
   String version = "";
   int _buildNumber = 0;
   List<String> _readOnlyFolders = [];
-
-  // 升级状态
-  bool? _hasUpdate;
-  VersionInfo? _versionInfo;
-  bool _checking = false;
 
   @override
   void initState() {
@@ -60,12 +50,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _refreshState() {
     if (!mounted) return;
-    // 切后端后 syncConfigs 会重新 load，刷新只读文件夹等本地配置显示
+    // 切后端后 syncConfigs 会重新 load，刷新只读文件夹等本地配置、以及同步服务器入口副标题
     _loadReadOnlyFolders();
     setState(() {});
   }
 
-  String _userSubtitle() {
+  // ===========================================================================
+  // 自部署同步入口：HTTP backend 专属功能（账号/url、版本升级、API 统计、墓碑）
+  // 全部在 SyncServerPage 内，这里只做导航。
+  // ===========================================================================
+
+  String _syncServerSubtitle() {
     final u = Repository.get().backend as HttpSyncBackend?;
     if (u == null) return l10n.notLoggedIn;
     final name = u.name.isNotEmpty ? u.name : u.id.toString();
@@ -73,63 +68,9 @@ class _SettingsPageState extends State<SettingsPage> {
     return '$name\n$server';
   }
 
-  void _onUserTap() async {
-    if (!mounted) return;
-
-    if (!HttpSyncBackend.loginStateNotifier.value) {
-      LoginDialog.show(context);
-      return;
-    }
-
-    // 已登录 → 弹对话框：修改密码 / 登出
-    final backend = Repository.get().backend as HttpSyncBackend?;
-    final action = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text(backend?.name ?? ''),
-        children: [
-          ListTile(
-            leading: const Icon(Icons.lock_outline),
-            title: Text(l10n.changePassword),
-            onTap: () => Navigator.pop(ctx, 'password'),
-          ),
-          ListTile(
-            leading: Icon(Icons.logout, color: Theme.of(ctx).colorScheme.error),
-            title: Text(l10n.logout, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-            onTap: () => Navigator.pop(ctx, 'logout'),
-          ),
-        ],
-      ),
-    );
-
-    if (!mounted) return;
-
-    if (action == 'password') {
-      ChangePasswordDialog.show(context);
-    } else if (action == 'logout') {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(l10n.logout),
-          content: Text(l10n.confirmLogout),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.cancel)),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(l10n.logout, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-            ),
-          ],
-        ),
-      );
-      if (confirmed == true) {
-        // 登出不是独立操作：token 失效（清 token + 登录态 false）+ 变游客。
-        // 认证归 backend，同步目标归 Repository，两者互不感知。
-        final cur = Repository.get().backend;
-        if (cur is HttpSyncBackend) await cur.clearToken(wipePassword: true);
-        Repository.get().setBackend(null);
-        if (mounted) setState(() {});
-      }
-    }
+  void _onSyncServerTap() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (context) => const SyncServerPage()));
+    if (mounted) setState(() {});
   }
 
   void _onThemeTap() async {
@@ -144,29 +85,6 @@ class _SettingsPageState extends State<SettingsPage> {
       version = packageInfo.version;
       _buildNumber = int.tryParse(packageInfo.buildNumber) ?? 0;
     });
-  }
-
-  Future<void> _checkUpgrade() async {
-    if (_checking) return;
-    setState(() => _checking = true);
-
-    final info = await UpgradeManager.checkUpgrade();
-    if (info != null && mounted) {
-      _versionInfo = info;
-      _hasUpdate = UpgradeManager.isNewerVersion(info.versionName, version);
-      setState(() {});
-    }
-    if (mounted) setState(() => _checking = false);
-  }
-
-  Future<void> _onVersionTap() async {
-    if (_checking) {
-      return;
-    }
-    await _checkUpgrade();
-    if (mounted) {
-      UpgradeManager.showVersionDialog(context, currentVersion: version, versionInfo: _versionInfo);
-    }
   }
 
   void _onLanguageTap() async {
@@ -296,19 +214,19 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildCard(
               context,
               children: [
+                // 自部署同步（HTTP backend 专属能力）入口
                 ListTile(
-                  onTap: _onUserTap,
-                  title: Text(l10n.syncAccount),
+                  onTap: _onSyncServerTap,
+                  title: Text(l10n.syncServer),
                   subtitle: Text(
-                    _userSubtitle(),
+                    _syncServerSubtitle(),
                     style: TextStyle(
-                      color: HttpSyncBackend.loginStateNotifier.value ? null : Theme.of(context).colorScheme.error,
+                      color: HttpSyncBackend.loginStateNotifier.value ? null : theme.colorScheme.error,
                     ),
                   ),
+                  trailing: const Icon(Icons.chevron_right),
                 ),
-                if (HttpSyncBackend.loginStateNotifier.value) ...[
-                  divider,
-                ],
+                divider,
                 ListTile(
                   onTap: _onReadOnlyFoldersTap,
                   title: Text(l10n.readOnlyFolders),
@@ -343,11 +261,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ],
                 divider,
+                // 只读版本信息：升级检查已移至「同步服务器」页（仅 HTTP backend 有效）
                 ListTile(
-                  onTap: _onVersionTap,
-                  title: _buildVersionTitle(),
+                  title: Text(l10n.version),
                   subtitle: subtitle,
-                  trailing: _hasUpdate == true ? const Icon(Icons.new_releases, color: Colors.orange) : null,
                 ),
               ],
             ),
@@ -363,22 +280,9 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildCard(
               context,
               children: [
-                ListTile(
-                  onTap: HttpSyncBackend.loginStateNotifier.value ? _onApiStatTap : null,
-                  title: Text(l10n.apiCallStats),
-                  enabled: HttpSyncBackend.loginStateNotifier.value,
-                ),
-                divider,
                 ListTile(onTap: _onRecordsDbTap, title: Text(l10n.database)),
                 divider,
                 ListTile(onTap: _onOperatesDbTap, title: Text(l10n.operates)),
-                divider,
-                ListTile(
-                  onTap: HttpSyncBackend.loginStateNotifier.value ? _onTombstoneTap : null,
-                  title: Text(l10n.tombstoneManager),
-                  subtitle: Text(l10n.tombstoneManagerDesc),
-                  enabled: HttpSyncBackend.loginStateNotifier.value,
-                ),
               ],
             ),
           ],
@@ -387,31 +291,11 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildVersionTitle() {
-    if (_checking) return Text('${l10n.version} · ${l10n.upgradeChecking}');
-    if (_hasUpdate == true) {
-      return Text(
-        '${l10n.version} · ${l10n.upgradeAvailable(_versionInfo?.versionName ?? '')}',
-        style: TextStyle(color: Theme.of(context).colorScheme.primary),
-      );
-    }
-    if (_hasUpdate == false) return Text('${l10n.version} · ${l10n.upgradeUpToDate}');
-    return Text(l10n.version);
-  }
-
   Widget _buildVersionSubtitle() {
     var current = '$version ($_buildNumber)';
     if (AppEnv.buildGitCommit.isNotEmpty) current += ' · ${AppEnv.buildGitCommit}';
     if (AppEnv.buildTime.isNotEmpty) current += ' · ${AppEnv.buildTime}';
     return Text(current);
-  }
-
-  void _onLinearLayoutTestTap() {
-    Navigator.push(context, MaterialPageRoute(builder: (context) => const LinearLayoutTestPage()));
-  }
-
-  void _onApiStatTap() {
-    Navigator.push(context, MaterialPageRoute(builder: (context) => const ServerApiStatsPage()));
   }
 
   void _onAppFolderTap() {
@@ -446,87 +330,5 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _onOperatesDbTap() {
     Navigator.push(context, MaterialPageRoute(builder: (context) => const LogsPage()));
-  }
-
-  Future<void> _onTombstoneTap() async {
-    if (!HttpSyncBackend.loginStateNotifier.value) return;
-    final result = await (Repository.get().backend as HttpSyncBackend).getTombstoneStats();
-    if (!mounted) return;
-    if (!result.isSuccess() || result.data == null) {
-      Toast.show(context, l10n.syncErrServerDb);
-      return;
-    }
-    final stats = result.data!;
-
-    // Show stats dialog
-    final theme = Theme.of(context);
-    if (!mounted) return;
-    final confirmDelete = await showDialog<bool>(
-      context: context,
-      useRootNavigator: false,
-      builder: (ctx) => AlertDialog(
-        title: Text(l10n.tombstoneTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _tombstoneRow(theme, l10n.tombstoneTotalRecords, stats.activeRecords.toString()),
-            _tombstoneRow(theme, l10n.tombstoneDeletedRecords, stats.tombstoneCount.toString()),
-            _tombstoneRow(theme, l10n.tombstoneDeletedAssets, stats.tombstoneAssetCount.toString()),
-            _tombstoneRow(theme, l10n.tombstoneMaxVersion, stats.maxVersion.toString()),
-            _tombstoneRow(theme, l10n.tombstonePurgedVersion, stats.purgedVersion.toString()),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.cancel)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l10n.tombstonePurge)),
-        ],
-      ),
-    );
-    if (confirmDelete != true) return;
-
-    // Confirm dialog
-    if (!mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      useRootNavigator: false,
-      builder: (ctx) => AlertDialog(
-        title: Text(l10n.tombstonePurge),
-        content: Text(l10n.tombstonePurgeConfirm(stats.tombstoneCount)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.cancel)),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
-            child: Text(l10n.tombstonePurge),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    if (!mounted) return;
-    // Perform purge
-    final purgeResult = await (Repository.get().backend as HttpSyncBackend).purgeTombstones();
-    if (!mounted) return;
-    if (purgeResult.isSuccess() && purgeResult.data != null) {
-      Toast.show(context, l10n.tombstonePurgeDone(stats.tombstoneAssetCount, purgeResult.data!.purgedCount));
-      // Trigger a sync to update local DB state after purgedVersion advanced
-      unawaited(Repository.get().syncRecords(true));
-    } else {
-      Toast.show(context, l10n.syncErrServerDb);
-    }
-  }
-
-  Widget _tombstoneRow(ThemeData theme, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(color: theme.colorScheme.outline)),
-          Text(value),
-        ],
-      ),
-    );
   }
 }

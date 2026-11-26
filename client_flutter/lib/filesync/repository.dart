@@ -105,7 +105,8 @@ class Repository {
     fileStore = FileStore(dataDir, cacheDir);
     db = createRecordsDatabase(File(join(dataDir, 'records0.db')));
     fileStore.db = db;
-    fileStore.backend = backend;
+    // 注意：此处不接 backend。Repository.backend 此时恒为 null（backend 在
+    // _openLocal 之后才由 BackendManager.restore 恢复，再经 setBackend → switchBackend 接入）。
 
     // 清理过期回收站
     final threshold = DateTime.now().millisecondsSinceEpoch - recyclerExpireDays * 24 * 60 * 60 * 1000;
@@ -163,10 +164,17 @@ class Repository {
     }
 
     backendSwitchingNotifier.value = true;
+    final oldBackend = backend;
     try {
       // 停掉旧的 SyncEngine
       await syncEngine?.close();
       syncEngine = null;
+
+      // 作废并排空 FileStore 里绑定旧 backend 的在飞下载（中断 HTTP、重建队列/client、
+      // 等旧任务全部收尾），必须在下面的 remote 状态重置之前完成 —— 否则旧下载在重置
+      // 之后写回 baseFileVersion / asset 标记会复活旧后端基准。启动恢复/游客登录时
+      // 旧 backend 为 null，内部走直接换引用的快路径，无销毁开销。
+      await fileStore.switchBackend(newBackend);
 
       // 清掉旧 backend 的 remote 状态 —— 避免新 backend 继承旧版本号
       // 注意：只有旧 backend 非 null 时才清空。
@@ -201,10 +209,15 @@ class Repository {
         );
       }
 
+      // 旧 backend 的连接池此刻已无在飞请求：SyncEngine 已停、fileStore 排空已等
+      // 所有 base 下载（走 backend 独占 client）收尾。安全释放，避免连接泄漏。
+      // 游客→登录时 oldBackend 为 null，跳过。
+      await oldBackend?.close();
+
       backend = newBackend;
-      fileStore.backend = newBackend;
-      // 只切换配置同步的传输层引用：DB 终身不变、配置值本地保留，无需 dispose/reload。
-      // 游客传 null，_doSync 自动跳过；缓存持续有效，只读门禁不受登出影响。
+      // FileStore 的 backend 已在重置前经 switchBackend 排空切换，这里只换配置层引用：
+      // DB 终身不变、配置值本地保留，无需 dispose/reload。游客传 null，_doSync 自动跳过；
+      // 缓存持续有效，只读门禁不受登出影响。
       syncConfigs.setBackend(newBackend);
 
       if (newBackend != null) {

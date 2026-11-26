@@ -34,13 +34,14 @@ class UpgradeManager {
     return false;
   }
 
-  /// 检查升级, 返回 VersionInfo (可能为 null)
+  /// 检查升级, 返回 VersionInfo (可能为 null)。
+  /// 版本升级仅 HTTP backend 有效：游客（backend==null）或非 HTTP backend 直接返回 null。
   static Future<VersionInfo?> checkUpgrade() async {
     final platform = detectPlatform();
-    final baseUrl = (Repository.get().backend as HttpSyncBackend?)?.apiUrl ?? '';
-    if (baseUrl.isEmpty) return null;
+    final backend = Repository.get().backend as HttpSyncBackend?;
+    if (backend == null || backend.apiUrl.isEmpty) return null;
 
-    final result = await HttpSyncBackend.checkUpgrade(platform, apiUrl: baseUrl);
+    final result = await backend.checkUpgrade(platform);
     if (result.isSuccess() && result.data != null) {
       return result.data!;
     }

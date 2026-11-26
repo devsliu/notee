@@ -96,19 +96,67 @@ class FileStore {
   late final String recyclerFilesDir;
   late final String assetsDir;
   late final String imageCacheDir;
-  final DedupTaskQueue<bool> _downloadQueue = DedupTaskQueue<bool>(concurrency: 4, disposeValue: false);
-  final http.Client _httpClient = http.Client();
+  DedupTaskQueue<bool> _downloadQueue = DedupTaskQueue<bool>(concurrency: 4, disposeValue: false);
+  http.Client _httpClient = http.Client();
   AppDatabase? db;
-  SyncBackend? backend;
+  SyncBackend? _backend;
+
+  /// 后端世代号：每次 [switchBackend] +1。在飞下载任务在 await 回来后比对世代，
+  /// 过期任务的结果一律丢弃，防止旧后端的响应在状态重置之后写回 db / 标记文件。
+  int _backendGeneration = 0;
+
+  /// 当前同步传输层。游客模式为 null，下载/鉴权相关调用自动跳过。
+  /// 运行时切换只能走 [switchBackend]（作废并排空旧在飞任务）；初始为 null。
+  SyncBackend? get backend => _backend;
+
+  /// 运行时切换同步传输层。本地文件目录（base/work/recycler/assets）不动，
+  /// 只处理与 backend 绑定的下载通道：
+  ///   1. 世代 +1：旧任务 await 回来后不再写 db / asset 标记；
+  ///   2. 先关旧 httpClient 中断在飞 HTTP，dispose 旧队列（拒绝新任务、释放排队者）；
+  ///   3. 重建队列/client 并绑定新 backend（游客传 null）；
+  ///   4. await 旧队列排空（DedupTaskQueue.dispose 会等在飞任务收尾）后才返回，
+  ///      调用方随后的 remote 状态重置不会被旧任务覆盖。
+  Future<void> switchBackend(SyncBackend? newBackend) async {
+    if (identical(_backend, newBackend)) return;
+    // 游客 → 登录：没有绑定旧后端的任务（网络图片缓存下载只写共享缓存、不碰 db/标记），
+    // 无需销毁队列/client，直接换引用即可。
+    if (_backend == null) {
+      _backend = newBackend;
+      return;
+    }
+
+    _backendGeneration++;
+    final oldQueue = _downloadQueue;
+    final oldClient = _httpClient;
+    // 换新通道：此期间新进来的下载走新队列/新 client，与旧世代隔离。
+    _downloadQueue = DedupTaskQueue<bool>(concurrency: 4, disposeValue: false);
+    _httpClient = http.Client();
+    _backend = newBackend;
+    // 关 FileStore 私有 client：中断走它的在飞 asset 下载（抛错被 catch 收敛为 false）。
+    // 注意 base 文件下载走 backend 独占的 HttpApi client，此刻仍由旧 backend 持有、
+    // 不能在这里关（Repository 要等本方法排空返回后才 close 旧 backend），故 base 下载
+    // 会自然跑到完成/自身超时；其结果由任务内世代守卫丢弃（不写 db/标记），落盘的
+    // base 文件由调用方随后的 resetAllBaseFiles 清理。
+    oldClient.close();
+    // 再 await 旧队列排空：确保返回前所有旧任务（含未中断的 base 下载）都已收尾，
+    // 调用方随后的 remote 状态重置不会被任何旧任务覆盖。
+    await oldQueue.dispose();
+    AppLogger.i('FileStore', 'switchBackend done, old download queue drained');
+  }
+
   bool _closed = false;
 
   final _controller = StreamController<ContentFileEvent>.broadcast();
   Stream<ContentFileEvent> get onContentChanged => _controller.stream;
 
+  /// 终态关闭（app 退出）：与 [switchBackend] 不同，不重建通道。
   Future<void> close() async {
     _closed = true;
-    _downloadQueue.dispose();
+    _backendGeneration++; // 作废所有在飞任务的延迟写入
+    // 仅中断走 FileStore 私有 client 的 asset 下载；base 下载走 backend 独占 client
+    // （其生命周期由 Repository 管理），这里靠世代/_closed 守卫保证不写 db。
     _httpClient.close();
+    await _downloadQueue.dispose(); // 等在飞任务全部收尾
   }
 
   FileStore(this.rootDir, [String? appCacheRoot]) : appCacheRoot = appCacheRoot ?? rootDir {
@@ -403,11 +451,15 @@ class FileStore {
   /// with local baseFileVersion (remote.fileVersion > baseFileVersion or file does not exist).
   /// Save baseFileVersion after successful download, never clear it.
   Future<bool> downloadBaseFile(String uuid) {
-    return _downloadQueue.submit(uuid, () async {
+    return _downloadQueue.submit(uuid, () => _downloadBaseFile(uuid, _backendGeneration));
+  }
+
+  Future<bool> _downloadBaseFile(String uuid, int gen) async {
+    try {
       final file = File(getBaseFile(uuid));
 
-      if (_closed) {
-        AppLogger.i('FileStore', "download uuid=$uuid aborted — fileStore closed");
+      if (_closed || gen != _backendGeneration) {
+        AppLogger.i('FileStore', "download uuid=$uuid aborted — closed or backend switched");
         return false;
       }
 
@@ -417,10 +469,17 @@ class FileStore {
         return true;
       }
 
-      if (_closed) return false;
+      if (_closed || gen != _backendGeneration) return false;
       final backend = this.backend;
       if (backend == null) return false;
       final result = await backend.downloadFile(uuid, getBaseFile(uuid));
+
+      // await 期间可能已切后端：旧后端响应一律作废，绝不能再写 db / 触发事件，
+      // 否则会在 resetAllRemoteFields 之后把旧服务器的 baseFileVersion 复活。
+      if (_closed || gen != _backendGeneration) {
+        AppLogger.i('FileStore', "download uuid=$uuid discarded — backend switched during download");
+        return false;
+      }
 
       if (!result.isSuccess() || result.data == null) {
         AppLogger.e('FileStore', "download uuid=$uuid download failed ${result.message}");
@@ -441,10 +500,7 @@ class FileStore {
         return false;
       }
 
-      if (_closed) {
-        AppLogger.i('FileStore', "download uuid=$uuid skipped post-download — fileStore closed");
-        return false;
-      }
+      if (_closed || gen != _backendGeneration) return false;
 
       try {
         await db?.updateRecord(uuid, baseFileVersion: meta.fileVersion);
@@ -453,12 +509,19 @@ class FileStore {
       }
 
       AppLogger.i('FileStore', "download base file $uuid");
-      
+
       if (!isWorkFileExist(uuid)) {
         _fireChanged(uuid, ContentFileEventType.download);
       }
       return true;
-    });
+    } catch (e) {
+      // 切后端关闭旧 httpClient 会让在飞请求抛错：旧世代任务静默失败，
+      // 不向 UI 调用方抛异常（与 downloadAsset 的错误契约一致）。
+      if (gen == _backendGeneration && !_closed) {
+        AppLogger.e('FileStore', "download uuid=$uuid failed: $e");
+      }
+      return false;
+    }
   }
 
   /// Resolve a raw image URL into a [RecordAsset].
@@ -499,38 +562,55 @@ class FileStore {
   Future<bool> downloadAsset(RecordAsset asset) {
     final url = asset.downloadUrl.isNotEmpty ? asset.downloadUrl : asset.src;
     final localPath = asset.cachePath;
-    return _downloadQueue.submit(url, () async {
-      if (localPath.isEmpty) return false;
-      if (!isRemoteUrl(url)) return File(localPath).existsSync();
-      if (File(localPath).existsSync()) {
-        if (asset.recordUuid != null && asset.filename != null) markAssetUploaded(asset.recordUuid!, asset.filename!);
-        return true;
+    return _downloadQueue.submit(url, () => _downloadAsset(asset, url, localPath, _backendGeneration));
+  }
+
+  Future<bool> _downloadAsset(RecordAsset asset, String url, String localPath, int gen) async {
+    // 绑定到任务启动时的 backend/client：切换后即使字段已换，本任务仍用旧引用，
+    // 结果经下方世代守卫丢弃，绝不会把新旧 backend/client 混在一次请求里。
+    final backend = this.backend;
+    final client = _httpClient;
+    if (localPath.isEmpty) return false;
+    if (!isRemoteUrl(url)) return File(localPath).existsSync();
+    if (File(localPath).existsSync()) {
+      // 标记写入也要验世代：切换后的 resetAllAssetMarkers 不能被旧任务重新污染。
+      if (gen == _backendGeneration && asset.recordUuid != null && asset.filename != null) {
+        markAssetUploaded(asset.recordUuid!, asset.filename!);
       }
-      try {
-        final request = http.Request('GET', Uri.parse(url));
-        if (asset.needsAuth) await backend?.setAuthToRequest(request);
-        final response = await _httpClient.send(request).timeout(const Duration(seconds: 120));
-        if (response.statusCode != 200) {
-          await response.stream.drain();
-          return false;
-        }
-        final file = File(localPath);
-        await file.parent.create(recursive: true);
-        await Utils.atomicWriteFile(file, (tmp) async {
-          final sink = tmp.openWrite();
-          try {
-            await response.stream.pipe(sink).timeout(const Duration(seconds: 120));
-          } finally {
-            await sink.close();
-          }
-        });
-        if (asset.recordUuid != null && asset.filename != null) markAssetUploaded(asset.recordUuid!, asset.filename!);
-        return true;
-      } catch (e) {
-        AppLogger.e('FileStore', "[downloadAsset] $url → $localPath failed: $e");
+      return true;
+    }
+    if (gen != _backendGeneration) return false;
+    try {
+      final request = http.Request('GET', Uri.parse(url));
+      if (asset.needsAuth) await backend?.setAuthToRequest(request);
+      final response = await client.send(request).timeout(const Duration(seconds: 120));
+      if (response.statusCode != 200) {
+        await response.stream.drain();
         return false;
       }
-    });
+      final file = File(localPath);
+      await file.parent.create(recursive: true);
+      await Utils.atomicWriteFile(file, (tmp) async {
+        final sink = tmp.openWrite();
+        try {
+          await response.stream.pipe(sink).timeout(const Duration(seconds: 120));
+        } finally {
+          await sink.close();
+        }
+      });
+      if (gen != _backendGeneration) {
+        // 下载期间已切后端：缓存文件可留（共享图片缓存无害），但 asset 标记绝不复活。
+        AppLogger.i('FileStore', "[downloadAsset] $url finished after backend switch, marker skipped");
+        return false;
+      }
+      if (asset.recordUuid != null && asset.filename != null) markAssetUploaded(asset.recordUuid!, asset.filename!);
+      return true;
+    } catch (e) {
+      if (gen == _backendGeneration && !_closed) {
+        AppLogger.e('FileStore', "[downloadAsset] $url → $localPath failed: $e");
+      }
+      return false;
+    }
   }
 
   /// Batch download base files with concurrency limit.  Each call goes through
@@ -538,17 +618,19 @@ class FileStore {
   /// deduplicate to a single HTTP request.
 
   Future<void> downloadBaseFiles(Iterable<String> uuids) async {
+    final gen = _backendGeneration;
     final Set<String> unique = uuids.toSet();
     if (unique.isEmpty || _closed) return;
 
     final tasks = <Future<void>>[];
     for (final uuid in unique) {
-      if (_closed) break;
+      // 切换进行中则停止向（可能已 dispose 的）旧队列灌任务，剩余的由新后端增量同步补齐。
+      if (_closed || gen != _backendGeneration) break;
       tasks.add(downloadBaseFile(uuid).then((_) {}).catchError((_) {}));
     }
 
     await Future.wait(tasks).catchError((e) {
-      if (!_closed) {
+      if (!_closed && gen == _backendGeneration) {
         AppLogger.e('FileStore', "downloadBaseFiles batch failed: $e");
       }
       return <void>[];

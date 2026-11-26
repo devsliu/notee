@@ -46,13 +46,18 @@ class HttpApi {
   static const Duration _receiveTimeout = Duration(seconds: 30);
   static const Duration _sendTimeout = Duration(seconds: 30);
 
-  static final Client _client = () {
-    final ioClient = HttpClient()
+  /// 每个 HttpApi（即每个 HttpSyncBackend）独占一个连接池，backend 被切换/丢弃时
+  /// 随 [close] 一起关闭，不再是跨 backend 共享、生命周期无法管控的 static 单例。
+  final Client _client = IOClient(
+    HttpClient()
       ..connectionTimeout = _connectTimeout
       ..idleTimeout = const Duration(seconds: 10)
-      ..maxConnectionsPerHost = 8;
-    return IOClient(ioClient);
-  }();
+      ..maxConnectionsPerHost = 8,
+  );
+
+  /// 关闭本 backend 独占的连接池。仅在 Repository 切换/丢弃本 backend 时调用，
+  /// 调用后该 HttpApi 不应再发起请求。
+  void close() => _client.close();
 
   // =========================================================================
   // 实例 —— 持有一个 backend，所有操作都走它的 apiUrl/token
@@ -83,16 +88,15 @@ class HttpApi {
   }
 
   /// 无认证请求（login / checkUpgrade）：只重试网络错误，不触发 relogin/clearToken。
-  static Future<ApiResult<T>> _noAuthWrapper<T>(
+  Future<ApiResult<T>> _noAuthWrapper<T>(
     String name,
-    String baseUrl,
     Future<ApiResult<T>> Function(Client client, String baseUrl) func,
   ) async {
-    return _runWithRetries(name, baseUrl, func);
+    return _runWithRetries(name, _backend.apiUrl, func);
   }
 
   /// 核心：指数退避重试 + 日志。认证回调可选，未传则遇到 401/562 直接返回结果。
-  static Future<ApiResult<T>> _runWithRetries<T>(
+  Future<ApiResult<T>> _runWithRetries<T>(
     String name,
     String baseUrl,
     Future<ApiResult<T>> Function(Client client, String baseUrl) func, {
@@ -176,12 +180,12 @@ class HttpApi {
   }
 
   // =========================================================================
-  // 所有 API endpoints（login / checkUpgrade 为静态无认证，其余为实例方法）
+  // 所有 API endpoints（login / checkUpgrade 为无认证，其余为带 token 认证）
   // =========================================================================
 
-  /// 登录 —— 公开接口，不需要 token。无认证调用，不触发 relogin/clearToken。
-  static Future<ApiResult<LoginResult>> login(String apiUrl, String name, String password) async {
-    return _noAuthWrapper("login $name", apiUrl, (client, baseUrl) async {
+  /// 登录 —— 无认证请求，不触发 relogin/clearToken。apiUrl 取自所属 backend。
+  Future<ApiResult<LoginResult>> login(String name, String password) async {
+    return _noAuthWrapper("login $name", (client, baseUrl) async {
       final resp = await client.post(
         Uri.parse('$baseUrl/user/login'),
         headers: {'Content-Type': 'application/json'},
@@ -447,9 +451,9 @@ class HttpApi {
     });
   }
 
-  /// 公开接口，不需要 token —— 升级检查
-  static Future<ApiResult<VersionInfo>> checkUpgrade(String apiUrl, String platform) async {
-    return _noAuthWrapper("checkUpgrade", apiUrl, (client, baseUrl) async {
+  /// 公开接口，不需要 token —— 升级检查。apiUrl 取自所属 backend。
+  Future<ApiResult<VersionInfo>> checkUpgrade(String platform) async {
+    return _noAuthWrapper("checkUpgrade", (client, baseUrl) async {
       final resp = await client.get(Uri.parse('$baseUrl/upgrade/check?platform=$platform')).timeout(const Duration(seconds: 10));
       final rawBody = utf8.decode(resp.bodyBytes);
       if (resp.statusCode == 200) return ApiResult.success(VersionInfo.fromJson(jsonDecode(rawBody)), rawData: rawBody);
